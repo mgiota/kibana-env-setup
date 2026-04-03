@@ -1,0 +1,70 @@
+server:
+  port: __KIBANA_PORT__
+  restrictInternalApis: false
+
+# localhost
+elasticsearch.hosts:
+  - "http://localhost:__ES_PORT__"
+elasticsearch.username: "kibana"
+elasticsearch.password: "changeme"
+elasticsearch.ssl.verificationMode: "none"
+
+# localhost (tls)
+# elasticsearch.hosts:
+#   - "https://localhost:__ES_PORT__"
+# elasticsearch.username: "kibana_system"
+# elasticsearch.password: "changeme"
+# elasticsearch.ssl.verificationMode: "none"
+
+elasticsearch.ignoreVersionMismatch: true
+# server.versioned.versionResolution: oldest
+
+#### Running a local Fleet Server and enrolling Elastic Agents
+#### https://github.com/elastic/kibana/blob/main/x-pack/plugins/fleet/dev_docs/local_setup/enrolling_agents.md
+
+server.versioned.versionResolution: oldest
+server.oas.enabled: true
+
+# Create an agent policy for Fleet Server.
+xpack.fleet.agentPolicies:
+  - name: Fleet Server policy
+    id: fleet-server-policy
+    is_default_fleet_server: true
+    # is_managed: true # Useful to mimic cloud environment
+    description: Fleet server policy
+    namespace: default
+    package_policies:
+      - name: Fleet Server
+        package:
+          name: fleet_server
+        inputs:
+          - type: fleet-server
+            keep_enabled: true
+            vars:
+              - name: host
+                value: 0.0.0.0
+                frozen: true
+              - name: port
+                value: 8220
+                frozen: true
+
+# Set a default Fleet Server host.
+xpack.fleet.fleetServerHosts:
+  - id: default-fleet-server
+    name: Default Fleet server
+    is_default: true
+    host_urls: ['https://host.docker.internal:8220'] # For running a Fleet Server Docker container
+
+# Set a default Elasticsearch output.
+xpack.fleet.outputs:
+  - id: es-default-output
+    name: Default output
+    type: elasticsearch
+    is_default: true
+    is_default_monitoring: true
+    hosts: ['http://host.docker.internal:__ES_PORT__'] # For enrolling dockerized agents
+
+# Install Fleet Server package
+xpack.fleet.packages:
+  - name: fleet_server
+    version: latest

@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kibana Dev Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ══════════════════════════════════════════════
+     THEME TOKENS
+  ══════════════════════════════════════════════ */
+  [data-theme="dark"] {
+    --bg:          #080b10;
+    --surface:     #0f1318;
+    --surface2:    #151b24;
+    --border:      #1e2836;
+    --border2:     #253040;
+    --green:       #3ddc84;
+    --green-bg:    rgba(61,220,132,0.1);
+    --green-bd:    rgba(61,220,132,0.25);
+    --blue:        #4db8ff;
+    --blue-bg:     rgba(77,184,255,0.1);
+    --blue-bd:     rgba(77,184,255,0.25);
+    --yellow:      #ffd166;
+    --yellow-bg:   rgba(255,209,102,0.1);
+    --yellow-bd:   rgba(255,209,102,0.25);
+    --red:         #ff6b6b;
+    --red-bg:      rgba(255,107,107,0.1);
+    --red-bd:      rgba(255,107,107,0.25);
+    --purple:      #c084fc;
+    --purple-bg:   rgba(192,132,252,0.1);
+    --purple-bd:   rgba(192,132,252,0.25);
+    --cyan:        #67e8f9;
+    --cyan-bg:     rgba(103,232,249,0.08);
+    --cyan-bd:     rgba(103,232,249,0.2);
+    --text:        #8fa8c0;
+    --text-bright: #ddeeff;
+    --text-dim:    #3d5060;
+    --shadow:      none;
+    --shadow-hover:none;
+    --card-hover-t:0px;
+    --tmux-bg:     #060810;
+    --tmux-bar:    #1a2535;
+    --tmux-title:  #161b27;
+    --tmux-border: #2d3548;
+    --tmux-dim:    #4a5a70;
+    --tmux-inact:  #4a5a70;
+    --toggle-bg:   #151b24;
+    --toggle-bd:   #253040;
+    --toggle-text: #8fa8c0;
+  }
+
+  [data-theme="light"] {
+    --bg:          #f5f3ee;
+    --surface:     #ffffff;
+    --surface2:    #f0ede6;
+    --border:      #e2ddd5;
+    --border2:     #d4cfc6;
+    --green:       #1a7a4a;
+    --green-bg:    #e8f5ee;
+    --green-bd:    #b8ddc8;
+    --blue:        #1a5fa8;
+    --blue-bg:     #e8f0fb;
+    --blue-bd:     #b8d0ee;
+    --yellow:      #8a6200;
+    --yellow-bg:   #fef8e7;
+    --yellow-bd:   #f0d890;
+    --red:         #b83232;
+    --red-bg:      #fdeaea;
+    --red-bd:      #f0b8b8;
+    --purple:      #6b3fa0;
+    --purple-bg:   #f3eefb;
+    --purple-bd:   #d4b8f0;
+    --cyan:        #1a7a8a;
+    --cyan-bg:     #e8f5f7;
+    --cyan-bd:     #b8dde3;
+    --text:        #4a5568;
+    --text-bright: #1a202c;
+    --text-dim:    #9aa5b4;
+    --shadow:      0 1px 4px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.04);
+    --shadow-hover:0 4px 12px rgba(0,0,0,0.1), 0 8px 24px rgba(0,0,0,0.06);
+    --card-hover-t:-1px;
+    --tmux-bg:     #1e2433;
+    --tmux-bar:    #232b3e;
+    --tmux-title:  #161b27;
+    --tmux-border: #2d3548;
+    --tmux-dim:    #5a6a80;
+    --tmux-inact:  #4a5a70;
+    --toggle-bg:   #ffffff;
+    --toggle-bd:   #e2ddd5;
+    --toggle-text: #4a5568;
+  }
+
+  /* ══════════════════════════════════════════════
+     RESET & BASE
+  ══════════════════════════════════════════════ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: hidden;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  /* dark: noise overlay */
+  [data-theme="dark"] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* light: dot grid */
+  [data-theme="light"] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(circle, #c8c0b0 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ══════════════════════════════════════════════
+     THEME TOGGLE
+  ══════════════════════════════════════════════ */
+  .theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--toggle-bg);
+    border: 1px solid var(--toggle-bd);
+    border-radius: 999px;
+    padding: 6px 14px 6px 10px;
+    cursor: pointer;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+
+  .theme-toggle:hover {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    transform: translateY(-1px);
+  }
+
+  .toggle-track {
+    width: 32px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--border2);
+    position: relative;
+    transition: background 0.25s ease;
+    flex-shrink: 0;
+  }
+
+  [data-theme="dark"] .toggle-track  { background: var(--green); }
+  [data-theme="light"] .toggle-track { background: var(--border2); }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    transition: left 0.25s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  [data-theme="dark"]  .toggle-thumb { left: 16px; }
+  [data-theme="light"] .toggle-thumb { left: 2px; }
+
+  .toggle-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--toggle-text);
+    transition: color 0.3s;
+    white-space: nowrap;
+  }
+
+  .toggle-icon {
+    font-size: 0.9rem;
+    line-height: 1;
+    transition: transform 0.4s ease;
+  }
+
+  [data-theme="dark"]  .toggle-icon { transform: rotate(0deg); }
+  [data-theme="light"] .toggle-icon { transform: rotate(180deg); }
+
+  /* ══════════════════════════════════════════════
+     LAYOUT
+  ══════════════════════════════════════════════ */
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 32px;
+    position: relative;
+    z-index: 1;
+  }
+
+  section {
+    padding: 80px 0;
+    border-bottom: 1px solid var(--border);
+    transition: border-color 0.3s;
+  }
+  section:last-child { border-bottom: none; }
+
+  /* ══════════════════════════════════════════════
+     HERO
+  ══════════════════════════════════════════════ */
+  .hero { padding: 100px 0 80px; border-bottom: 1px solid var(--border); }
+
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 24px;
+    font-weight: 500;
+    transition: color 0.3s;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: inline-block;
+    width: 24px;
+    height: 2px;
+    background: var(--green);
+    border-radius: 2px;
+    transition: background 0.3s;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2.2rem, 5vw, 3.8rem);
+    font-weight: 800;
+    color: var(--text-bright);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    transition: color 0.3s;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--green);
+    position: relative;
+    transition: color 0.3s;
+  }
+
+  [data-theme="light"] h1 em::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    left: 0; right: 0;
+    height: 3px;
+    background: var(--green);
+    border-radius: 2px;
+    opacity: 0.3;
+  }
+
+  .hero-sub {
+    font-size: 0.85rem;
+    color: var(--text);
+    max-width: 560px;
+    line-height: 1.9;
+    margin-bottom: 40px;
+    transition: color 0.3s;
+  }
+
+  .hero-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .tag {
+    font-size: 0.7rem;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    transition: all 0.3s;
+  }
+
+  [data-theme="light"] .tag { border-radius: 20px; }
+
+  .tag-green  { color: var(--green);  border-color: var(--green-bd);  background: var(--green-bg); }
+  .tag-blue   { color: var(--blue);   border-color: var(--blue-bd);   background: var(--blue-bg); }
+  .tag-yellow { color: var(--yellow); border-color: var(--yellow-bd); background: var(--yellow-bg); }
+  .tag-purple { color: var(--purple); border-color: var(--purple-bd); background: var(--purple-bg); }
+
+  /* ══════════════════════════════════════════════
+     SECTION HEADERS
+  ══════════════════════════════════════════════ */
+  .section-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    font-weight: 500;
+    transition: color 0.3s;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 32px;
+    letter-spacing: -0.01em;
+    transition: color 0.3s;
+  }
+
+  h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 12px;
+    transition: color 0.3s;
+  }
+
+  p { color: var(--text); line-height: 1.8; margin-bottom: 16px; transition: color 0.3s; }
+  p:last-child { margin-bottom: 0; }
+
+  /* ══════════════════════════════════════════════
+     CARDS
+  ══════════════════════════════════════════════ */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    transition: all 0.3s ease;
+  }
+
+  [data-theme="light"] .card { border-radius: 12px; }
+  [data-theme="light"] .card:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(var(--card-hover-t));
+  }
+
+  .card-red    { border-top: 2px solid var(--red); }
+  .card-green  { border-top: 2px solid var(--green); }
+  .card-blue   { border-top: 2px solid var(--blue); }
+  .card-yellow { border-top: 2px solid var(--yellow); }
+
+  [data-theme="light"] .card-red    { border-top: none; border-left: 3px solid var(--red); }
+  [data-theme="light"] .card-green  { border-top: none; border-left: 3px solid var(--green); }
+  [data-theme="light"] .card-blue   { border-top: none; border-left: 3px solid var(--blue); }
+  [data-theme="light"] .card-yellow { border-top: none; border-left: 3px solid var(--yellow); }
+
+  .card-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    font-weight: 600;
+    transition: color 0.3s;
+  }
+
+  .card-red    .card-label { color: var(--red); }
+  .card-green  .card-label { color: var(--green); }
+  .card-blue   .card-label { color: var(--blue); }
+  .card-yellow .card-label { color: var(--yellow); }
+
+  ul { list-style: none; }
+  ul li {
+    padding: 4px 0 4px 20px;
+    position: relative;
+    color: var(--text);
+    font-size: 0.82rem;
+    transition: color 0.3s;
+  }
+  ul li::before { content: '·'; position: absolute; left: 6px; color: var(--text-dim); }
+  ul.check li::before { content: '✓'; color: var(--green); font-size: 0.7rem; top: 1px; left: 4px; }
+  ul.cross li::before { content: '✗'; color: var(--red);   font-size: 0.7rem; top: 1px; left: 4px; }
+
+  /* ══════════════════════════════════════════════
+     TMUX DIAGRAM (always dark — it's a terminal)
+  ══════════════════════════════════════════════ */
+  .tmux-diagram {
+    background: var(--tmux-bg);
+    border: 1px solid var(--tmux-border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 32px;
+    font-size: 0.78rem;
+    box-shadow: var(--shadow-hover);
+  }
+
+  [data-theme="light"] .tmux-diagram { border-radius: 12px; }
+
+  .tmux-titlebar {
+    background: var(--tmux-title);
+    border-bottom: 1px solid var(--tmux-border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tmux-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-red    { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green  { background: #28c840; }
+
+  .tmux-title { margin-left: 8px; font-size: 0.7rem; color: var(--tmux-dim); letter-spacing: 0.05em; }
+
+  .tmux-statusbar {
+    background: var(--tmux-bar);
+    padding: 4px 12px;
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    border-bottom: 1px solid var(--tmux-border);
+  }
+
+  .tmux-win { padding: 2px 10px; font-size: 0.7rem; border-radius: 3px; cursor: default; }
+  .tmux-win.active   { background: #3ddc84; color: #000; font-weight: 700; }
+  .tmux-win.inactive { color: var(--tmux-inact); }
+  .tmux-session-name { margin-left: auto; font-size: 0.65rem; color: #3ddc84; }
+
+  .tmux-content { display: grid; min-height: 140px; }
+  .tmux-content.split-h { grid-template-columns: 1fr 1fr; }
+
+  .tmux-pane { padding: 14px 16px; border-right: 1px solid var(--tmux-border); min-height: 120px; }
+  .tmux-pane:last-child { border-right: none; }
+  .tmux-pane.active-pane { border-top: 2px solid #3ddc84; }
+
+  .pane-label { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tmux-dim); margin-bottom: 10px; }
+  .pane-cmd    { color: #3ddc84; font-size: 0.75rem; margin-bottom: 4px; }
+  .pane-output { color: var(--tmux-dim); font-size: 0.7rem; line-height: 1.6; margin-top: 10px; }
+  .pane-output .hi   { color: #67e8f9; }
+  .pane-output .ok   { color: #3ddc84; }
+  .pane-output .warn { color: #ffd166; }
+
+  /* ══════════════════════════════════════════════
+     SESSION CARDS
+  ══════════════════════════════════════════════ */
+  .sessions-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .session-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: all 0.3s ease;
+  }
+
+  [data-theme="light"] .session-card { border-radius: 12px; }
+  [data-theme="light"] .session-card:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px);
+  }
+
+  .session-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface2);
+    transition: all 0.3s;
+  }
+
+  .session-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .session-name { font-size: 0.78rem; font-weight: 700; color: var(--text-bright); transition: color 0.3s; }
+
+  .session-badge {
+    margin-left: auto;
+    font-size: 0.6rem;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    border: 1px solid;
+    transition: all 0.3s;
+  }
+
+  [data-theme="light"] .session-badge { border-radius: 10px; }
+
+  .badge-perm   { background: var(--green-bg);  color: var(--green);  border-color: var(--green-bd); }
+  .badge-temp   { background: var(--yellow-bg); color: var(--yellow); border-color: var(--yellow-bd); }
+  .badge-claude { background: var(--purple-bg); color: var(--purple); border-color: var(--purple-bd); }
+
+  .session-windows { padding: 10px 16px 14px; }
+
+  .win-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .win-num   { font-size: 0.65rem; color: var(--text-dim); width: 14px; flex-shrink: 0; transition: color 0.3s; }
+  .win-name  { font-size: 0.75rem; color: var(--text-bright); font-weight: 500; transition: color 0.3s; }
+  .win-panes { margin-left: auto; font-size: 0.62rem; color: var(--text-dim); transition: color 0.3s; }
+
+  /* ══════════════════════════════════════════════
+     WORKTREE DIAGRAM
+  ══════════════════════════════════════════════ */
+  .worktree-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    font-size: 0.8rem;
+    box-shadow: var(--shadow);
+    transition: all 0.3s;
+  }
+
+  [data-theme="light"] .worktree-diagram { border-radius: 12px; }
+
+  .tree-root      { color: var(--blue); font-weight: 700; margin-bottom: 8px; transition: color 0.3s; }
+  .tree-line      { display: flex; align-items: center; gap: 8px; padding: 3px 0; padding-left: 20px; }
+  .tree-connector { color: var(--text-dim); flex-shrink: 0; transition: color 0.3s; }
+  .tree-folder    { color: var(--yellow); font-weight: 600; transition: color 0.3s; }
+  .tree-file      { color: var(--text-dim); transition: color 0.3s; }
+  .tree-note      { color: var(--text-dim); font-size: 0.7rem; margin-left: 4px; transition: color 0.3s; }
+  .tree-highlight { color: var(--green); font-weight: 700; transition: color 0.3s; }
+  .tree-port {
+    margin-left: auto;
+    font-size: 0.68rem;
+    color: var(--cyan);
+    background: var(--cyan-bg);
+    border: 1px solid var(--cyan-bd);
+    padding: 1px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+    transition: all 0.3s;
+  }
+
+  /* ══════════════════════════════════════════════
+     FLOW DIAGRAM
+  ══════════════════════════════════════════════ */
+  .flow { display: flex; flex-direction: column; margin-bottom: 32px; }
+  .flow-step { display: flex; gap: 20px; position: relative; }
+  .flow-left { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 40px; }
+
+  .flow-circle {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    z-index: 1;
+    border: 2px solid;
+    transition: all 0.3s;
+  }
+
+  [data-theme="dark"] .flow-circle { border: none; }
+
+  .flow-line {
+    width: 2px;
+    flex: 1;
+    min-height: 20px;
+    background: var(--border);
+    margin: 2px 0;
+    border-radius: 2px;
+    transition: background 0.3s;
+  }
+
+  [data-theme="dark"] .flow-line { width: 1px; }
+
+  .flow-step:last-child .flow-line { display: none; }
+  .flow-body   { padding: 4px 0 28px; flex: 1; }
+  .flow-title  { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.9rem; color: var(--text-bright); margin-bottom: 6px; transition: color 0.3s; }
+  .flow-desc   { font-size: 0.78rem; color: var(--text); line-height: 1.7; margin-bottom: 8px; transition: color 0.3s; }
+
+  .code-inline {
+    display: inline-block;
+    background: #1e2433;
+    border-radius: 5px;
+    padding: 2px 10px;
+    font-size: 0.75rem;
+    color: #3ddc84;
+    letter-spacing: 0.02em;
+  }
+
+  /* ══════════════════════════════════════════════
+     AUTO START
+  ══════════════════════════════════════════════ */
+  .autostart {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    margin-bottom: 32px;
+    box-shadow: var(--shadow);
+    transition: all 0.3s;
+  }
+
+  [data-theme="light"] .autostart { border-radius: 12px; }
+
+  .autostart-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .autostart-row:last-child { margin-bottom: 0; }
+
+  .as-box {
+    padding: 7px 14px;
+    border-radius: 7px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    border: 1px solid;
+    font-weight: 500;
+    transition: all 0.3s;
+  }
+
+  .as-arrow { color: var(--text-dim); font-size: 1rem; flex-shrink: 0; transition: color 0.3s; }
+  .as-note  { font-size: 0.72rem; color: var(--text-dim); transition: color 0.3s; }
+
+  /* ══════════════════════════════════════════════
+     COMMAND REFERENCE
+  ══════════════════════════════════════════════ */
+  .cmd-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .cmd-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: all 0.3s;
+  }
+
+  [data-theme="light"] .cmd-group { border-radius: 12px; }
+
+  .cmd-group-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    background: var(--surface2);
+    transition: all 0.3s;
+  }
+
+  .cmd-row { display: flex; align-items: baseline; gap: 12px; padding: 7px 16px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+  .cmd-row:last-child { border-bottom: none; }
+  .cmd-row:hover { background: var(--surface2); }
+
+  .cmd-text { font-size: 0.73rem; font-weight: 600; flex-shrink: 0; white-space: nowrap; transition: color 0.3s; }
+  .cmd-desc { font-size: 0.72rem; color: var(--text-dim); transition: color 0.3s; }
+
+  /* ══════════════════════════════════════════════
+     FOOTER
+  ══════════════════════════════════════════════ */
+  footer {
+    padding: 40px 0;
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    border-top: 1px solid var(--border);
+    transition: all 0.3s;
+  }
+
+  /* ══════════════════════════════════════════════
+     ANIMATIONS
+  ══════════════════════════════════════════════ */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hero > * { animation: fadeUp 0.5s ease both; }
+  .hero-eyebrow { animation-delay: 0.05s; }
+  h1            { animation-delay: 0.1s; }
+  .hero-sub     { animation-delay: 0.15s; }
+  .hero-tags    { animation-delay: 0.2s; }
+
+  @media (max-width: 768px) {
+    .two-col, .sessions-grid, .cmd-grid { grid-template-columns: 1fr; }
+    .page { padding: 0 16px; }
+    .theme-toggle { top: 12px; right: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ THEME TOGGLE ══════════════ -->
+<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+  <span class="toggle-icon">🌙</span>
+  <div class="toggle-track"><div class="toggle-thumb"></div></div>
+  <span class="toggle-label" id="toggle-label">DARK</span>
+</button>
+
+<div class="page">
+
+<!-- ══════════════════════ HERO ══════════════════════ -->
+<section class="hero">
+  <div class="hero-eyebrow">Kibana Observability Team · Dev Workflow Proposal</div>
+  <h1>tmux + Git Worktrees<br>for <em>Multi-Branch</em> Kibana Dev</h1>
+  <p class="hero-sub">
+    A structured local development setup that eliminates context-switching overhead,
+    lets multiple Kibana instances run simultaneously, and automates the full
+    bootstrap → ES → Kibana startup sequence.
+  </p>
+  <div class="hero-tags">
+    <span class="tag tag-green">tmux</span>
+    <span class="tag tag-blue">git worktrees</span>
+    <span class="tag tag-yellow">dev-start.sh</span>
+    <span class="tag tag-purple">cursor-agent</span>
+    <span class="tag tag-green">auto port assignment</span>
+    <span class="tag tag-blue">playwright-mcp</span>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ PROBLEM ══════════════════════ -->
+<section>
+  <div class="section-label">01 · Motivation</div>
+  <h2>The Problem with Today's Setup</h2>
+  <div class="two-col">
+    <div class="card card-red">
+      <div class="card-label">Before — tabs + manual switching</div>
+      <ul class="cross">
+        <li>5–10 terminal tabs with no structure</li>
+        <li>Switching branches = stop servers, stash, checkout, restart</li>
+        <li>No way to run two Kibana instances simultaneously</li>
+        <li>Context lost when terminal closes or machine restarts</li>
+        <li>Manual port management across sessions</li>
+        <li>cursor-agent has no awareness of which Kibana URL to use</li>
+        <li>Full startup sequence done manually every time</li>
+      </ul>
+    </div>
+    <div class="card card-green">
+      <div class="card-label">After — tmux + worktrees + dev-start.sh</div>
+      <ul class="check">
+        <li>Named sessions with structured windows per concern</li>
+        <li>Switch branches = Ctrl-a s, no restarts needed</li>
+        <li>kibana-main and kibana-feat run concurrently on different ports</li>
+        <li>Sessions survive terminal close, persist until machine reboot</li>
+        <li>Ports auto-assigned, never conflict</li>
+        <li>cursor-agent lives inside each session, scoped to that worktree</li>
+        <li>One command starts everything automatically</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ SESSION STRUCTURE ══════════════════════ -->
+<section>
+  <div class="section-label">02 · tmux Session Structure</div>
+  <h2>Sessions, Windows & Panes</h2>
+
+  <p>There are <strong style="color:var(--text-bright)">2 permanent sessions</strong> — <span style="color:var(--green)">kibana-feat</span> and <span style="color:var(--blue)">kibana-main</span> — always running in the background. On top of that, you can spin up as many <strong style="color:var(--text-bright)">temporary sessions</strong> as you need using <span class="code-inline">~/dev-start.sh new &lt;branch&gt;</span> — for PR reviews, hotfixes, testing a colleague's branch, etc. Kill them when done. Switch between any session instantly with <span class="code-inline">Ctrl-a s</span>.</p>
+
+  <div class="card card-green" style="margin-top:24px">
+    <div class="card-label">Design rationale</div>
+    <p style="margin-bottom:12px"><strong style="color:var(--text-bright)">kibana-feat always runs on the default ports</strong> — Kibana <code style="color:var(--green)">:5601</code> and ES <code style="color:var(--green)">:9200</code> — because that's where most of your day-to-day development happens. No port memorization needed.</p>
+    <p style="margin-bottom:12px"><strong style="color:var(--text-bright)">kibana-main is kept clean</strong> on <code style="color:var(--blue)">:5602</code> / <code style="color:var(--blue)">:9201</code>, reserved for checking the latest state of main without interfering with your feature work.</p>
+    <p style="margin-bottom:12px"><strong style="color:var(--text-bright)">Temporary sessions</strong> get ports auto-assigned from <code style="color:var(--yellow)">:5603+</code>. Spin up as many as you want — they never conflict with each other or with the permanent sessions.</p>
+    <p>When you finish a feature and move to a new one, run <span class="code-inline">~/dev-start.sh switch &lt;new-branch&gt;</span>. Your new feature branch will be set up in <code style="color:var(--green)">kibana-feat</code>, automatically configured on the default ports. You don't have to handle any of this yourself.</p>
+  </div>
+
+  <div class="sessions-grid" style="margin-top:28px">
+
+    <div class="session-card">
+      <div class="session-header">
+        <div class="session-dot" style="background:#3ddc84"></div>
+        <div class="session-name">kibana-feat</div>
+        <div class="session-badge badge-perm">permanent</div>
+      </div>
+      <div class="session-windows">
+        <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
+        <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
+        <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">vim, /etc/hosts, configs</span></div>
+        <div class="win-row"><span class="win-num">5</span><span class="win-name">tests</span><span class="win-panes">top: unit · bottom: scout</span></div>
+        <div class="win-row"><span class="win-num">6</span><span class="win-name">ftr</span><span class="win-panes">left: server · right: runner</span></div>
+      </div>
+    </div>
+
+    <div class="session-card">
+      <div class="session-header">
+        <div class="session-dot" style="background:#4db8ff"></div>
+        <div class="session-name">kibana-main</div>
+        <div class="session-badge badge-perm">permanent</div>
+      </div>
+      <div class="session-windows">
+        <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
+        <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
+        <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">vim, /etc/hosts, configs</span></div>
+        <div class="win-row"><span class="win-num">5</span><span class="win-name">tests</span><span class="win-panes">top: unit · bottom: scout</span></div>
+        <div class="win-row"><span class="win-num">6</span><span class="win-name">ftr</span><span class="win-panes">left: server · right: runner</span></div>
+      </div>
+    </div>
+
+    <div class="session-card">
+      <div class="session-header">
+        <div class="session-dot" style="background:#ffd166"></div>
+        <div class="session-name">kibana-&lt;branch&gt;</div>
+        <div class="session-badge badge-temp">temporary</div>
+      </div>
+      <div class="session-windows">
+        <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
+        <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
+        <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">single pane</span></div>
+        <div style="padding:8px 0 2px">
+          <span style="font-size:0.68rem;color:var(--yellow);font-weight:600">↳ lightweight, killed when done</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Servers window -->
+  <h3 style="margin-bottom:14px">The Servers Window (most important)</h3>
+  <div class="tmux-diagram">
+    <div class="tmux-titlebar">
+      <div class="tmux-dot dot-red"></div>
+      <div class="tmux-dot dot-yellow"></div>
+      <div class="tmux-dot dot-green"></div>
+      <div class="tmux-title">Terminal — kibana-feat</div>
+    </div>
+    <div class="tmux-statusbar">
+      <div class="tmux-win active">0:servers</div>
+      <div class="tmux-win inactive">1:cursor</div>
+      <div class="tmux-win inactive">2:scripts</div>
+      <div class="tmux-win inactive">3:git</div>
+      <div class="tmux-win inactive">4:editor</div>
+      <div class="tmux-win inactive">5:tests</div>
+      <div class="tmux-win inactive">6:ftr</div>
+      <div class="tmux-session-name">[kibana-feat]</div>
+    </div>
+    <div class="tmux-content split-h">
+      <div class="tmux-pane active-pane">
+        <div class="pane-label">left — ES + bootstrap</div>
+        <div class="pane-cmd">$ kbn-start.sh feat-cluster \</div>
+        <div class="pane-cmd" style="padding-left:16px">--kibana-port 5601 \</div>
+        <div class="pane-cmd" style="padding-left:16px">--es-port 9200</div>
+        <div class="pane-output">
+          <span class="ok">▶ yarn kbn bootstrap...</span><br>
+          <span class="ok">▶ Starting ES...</span><br>
+          <span class="hi">{"message":"started"}</span><br>
+          <span class="ok">succ kbn/es setup complete</span><br>
+          <span class="warn">→ auto-firing Kibana in right pane</span>
+        </div>
+      </div>
+      <div class="tmux-pane">
+        <div class="pane-label">right — Kibana (auto-started)</div>
+        <div class="pane-cmd">$ yarn start --no-base-path \</div>
+        <div class="pane-cmd" style="padding-left:16px">--host kibana-feat.local \</div>
+        <div class="pane-cmd" style="padding-left:16px">--port 5601</div>
+        <div class="pane-output">
+          <span class="hi">Server running at</span><br>
+          <span class="ok">http://kibana-feat.local:5601</span><br>
+          <span class="ok">Kibana is now available</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cursor window -->
+  <h3 style="margin-bottom:14px">The Cursor Window (AI coding)</h3>
+  <div class="tmux-diagram">
+    <div class="tmux-titlebar">
+      <div class="tmux-dot dot-red"></div>
+      <div class="tmux-dot dot-yellow"></div>
+      <div class="tmux-dot dot-green"></div>
+      <div class="tmux-title">Terminal — kibana-feat</div>
+    </div>
+    <div class="tmux-statusbar">
+      <div class="tmux-win inactive">0:servers</div>
+      <div class="tmux-win active">1:cursor</div>
+      <div class="tmux-win inactive">2:scripts</div>
+      <div class="tmux-win inactive">3:git</div>
+      <div class="tmux-win inactive">4:editor</div>
+      <div class="tmux-win inactive">5:tests</div>
+      <div class="tmux-win inactive">6:ftr</div>
+      <div class="tmux-session-name">[kibana-feat]</div>
+    </div>
+    <div class="tmux-content split-h" style="grid-template-columns: 3fr 2fr;">
+      <div class="tmux-pane active-pane">
+        <div class="pane-label">left (~60%) — cursor-agent</div>
+        <div class="pane-cmd">$ cursor-agent</div>
+        <div class="pane-output">
+          <span class="ok">▶ Starting cursor agent...</span><br>
+          <span class="hi">Context: ~/worktrees/slo-filters</span><br>
+          <span class="ok">Agent ready. How can I help?</span><br>
+          <span style="color:#7a9ab0">▌</span>
+        </div>
+      </div>
+      <div class="tmux-pane">
+        <div class="pane-label">right (~40%) — spare shell</div>
+        <div class="pane-cmd">$ cd ~/worktrees/slo-filters</div>
+        <div class="pane-output">
+          <span style="color:#7a9ab0"># run commands the agent</span><br>
+          <span style="color:#7a9ab0"># suggests, check output,</span><br>
+          <span style="color:#7a9ab0"># git status, file browsing</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ WORKTREES ══════════════════════ -->
+<section>
+  <div class="section-label">03 · Git Worktrees</div>
+  <h2>Multiple Branches, Simultaneously on Disk</h2>
+
+  <p>Git worktrees allow multiple branches to be checked out at the same time in separate directories, all sharing a single <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">.git</code> folder. No stashing, no switching, no interrupting running servers.</p>
+
+  <div class="worktree-diagram" style="margin-top:24px">
+    <div class="tree-root">~/  (home directory)</div>
+    <div class="tree-line">
+      <span class="tree-connector">├──</span>
+      <span class="tree-folder">kibana/</span>
+      <span class="tree-note">← main repo (main branch)</span>
+      <span class="tree-port">:5602 / :9201</span>
+    </div>
+    <div class="tree-line" style="padding-left:40px">
+      <span class="tree-connector">├──</span>
+      <span class="tree-file">config/kibana.dev.yml</span>
+      <span class="tree-note">auto-generated · port 5602</span>
+    </div>
+    <div class="tree-line" style="padding-left:40px">
+      <span class="tree-connector">└──</span>
+      <span class="tree-file">.cursor/mcp.json</span>
+      <span class="tree-note">KIBANA_URL=http://kibana-main.local:5602</span>
+    </div>
+    <div class="tree-line" style="margin-top:10px">
+      <span class="tree-connector">├──</span>
+      <span class="tree-folder">worktrees/</span>
+    </div>
+    <div class="tree-line" style="padding-left:40px">
+      <span class="tree-connector">├──</span>
+      <span class="tree-folder tree-highlight">slo-filters/</span>
+      <span class="tree-note">← feat worktree (current feature)</span>
+      <span class="tree-port">:5601 / :9200</span>
+    </div>
+    <div class="tree-line" style="padding-left:60px">
+      <span class="tree-connector">├──</span>
+      <span class="tree-file">config/kibana.dev.yml</span>
+      <span class="tree-note">auto-generated · port 5601</span>
+    </div>
+    <div class="tree-line" style="padding-left:60px">
+      <span class="tree-connector">└──</span>
+      <span class="tree-file">.cursor/mcp.json</span>
+      <span class="tree-note">KIBANA_URL=http://kibana-feat.local:5601</span>
+    </div>
+    <div class="tree-line" style="padding-left:40px;margin-top:6px">
+      <span class="tree-connector">└──</span>
+      <span class="tree-folder" style="color:var(--yellow)">slo-crash/</span>
+      <span class="tree-note">← temporary worktree (created by new command)</span>
+      <span class="tree-port">:5603 / :9202</span>
+    </div>
+    <div class="tree-line" style="padding-left:60px">
+      <span class="tree-connector">├──</span>
+      <span class="tree-file">config/kibana.dev.yml</span>
+      <span class="tree-note">auto-generated · port 5603</span>
+    </div>
+    <div class="tree-line" style="padding-left:60px">
+      <span class="tree-connector">└──</span>
+      <span class="tree-file">.cursor/mcp.json</span>
+      <span class="tree-note">KIBANA_URL=http://localhost:5603</span>
+    </div>
+    <div class="tree-line" style="margin-top:10px">
+      <span class="tree-connector">└──</span>
+      <span class="tree-file">.kibana-dev-state</span>
+      <span class="tree-note">tracks current feat branch + dir</span>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card card-blue">
+      <div class="card-label">Key insight</div>
+      <p style="font-size:0.8rem">All worktrees share the same <code style="color:var(--cyan)">.git</code> history — only working files differ. <code>node_modules</code> is separate per worktree (one-time <code>yarn kbn bootstrap</code> per worktree).</p>
+    </div>
+    <div class="card card-yellow">
+      <div class="card-label">Port assignment</div>
+      <ul style="font-size:0.78rem">
+        <li>kibana-main  →  Kibana :5602 · ES :9201</li>
+        <li>kibana-feat  →  Kibana :5601 · ES :9200</li>
+        <li>kibana-&lt;branch&gt;  →  auto-assigned from :5603+  (created by new command)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ AUTO START ══════════════════════ -->
+<section>
+  <div class="section-label">04 · Automation</div>
+  <h2>The Auto-Start Sequence</h2>
+
+  <p>Running <span class="code-inline">~/dev-start.sh</span> triggers a fully automated startup. You never manually run bootstrap or start servers.</p>
+
+  <div class="autostart" style="margin-top:24px">
+    <div class="autostart-row">
+      <div class="as-box" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">~/dev-start.sh</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">reads ~/.kibana-dev-state, creates all sessions</div>
+    </div>
+    <div class="autostart-row" style="padding-left:20px">
+      <div class="as-box" style="background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)">kbn-start.sh</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">sent to left pane of each servers window</div>
+    </div>
+    <div class="autostart-row" style="padding-left:40px">
+      <div class="as-box" style="background:var(--surface2);border-color:var(--border2);color:var(--cyan)">nvm use</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">switches to correct Node version (reads .nvmrc)</div>
+    </div>
+    <div class="autostart-row" style="padding-left:40px">
+      <div class="as-box" style="background:var(--surface2);border-color:var(--border2);color:var(--cyan)">yarn kbn bootstrap</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">installs deps for this worktree</div>
+    </div>
+    <div class="autostart-row" style="padding-left:40px">
+      <div class="as-box" style="background:var(--surface2);border-color:var(--border2);color:var(--cyan)">yarn es snapshot --license trial</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">starts ES, pipes output to /tmp/es-*.log</div>
+    </div>
+    <div class="autostart-row" style="padding-left:40px">
+      <div class="as-box" style="background:var(--yellow-bg);border-color:var(--yellow-bd);color:var(--yellow)">tail -F log | watch trigger</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">watches for ES ready signal in log</div>
+    </div>
+    <div class="autostart-row" style="padding-left:40px">
+      <div class="as-box" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">nvm use + yarn start (auto-fired)</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">sent to right pane the moment ES is ready</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ DAILY WORKFLOW ══════════════════════ -->
+<section>
+  <div class="section-label">05 · Daily Workflow</div>
+  <h2>How This Looks Day-to-Day</h2>
+
+  <div class="flow" style="margin-top:8px">
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">1</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">Morning — start everything</div>
+        <div class="flow-desc">One command recreates all sessions if they don't exist, or reattaches to kibana-feat if they do.</div>
+        <span class="code-inline">~/dev-start.sh</span>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)">2</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">Working on your feature</div>
+        <div class="flow-desc">Land in kibana-feat by default. All windows are ready. Kibana auto-starts once ES is up. Jump to cursor window to run cursor-agent in your worktree context.</div>
+        <span class="code-inline">Ctrl-a w</span> &nbsp;→ jump to any window
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)">3</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">Check main branch behavior</div>
+        <div class="flow-desc">Switch to kibana-main without touching your feature session. Both Kibana instances run concurrently on different ports. kibana-feat stays untouched.</div>
+        <span class="code-inline">Ctrl-a s</span> &nbsp;→ select kibana-main
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--yellow-bg);border-color:var(--yellow-bd);color:var(--yellow)">4</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">Review a colleague's PR (needs to run)</div>
+        <div class="flow-desc">Spin up a lightweight session on its own port alongside your running kibana-feat. Reuses existing worktree if already checked out. Kill it cleanly when done.</div>
+        <span class="code-inline">~/dev-start.sh new feat/colleague-branch</span><br><br>
+        <span class="code-inline">~/dev-start.sh kill colleague-branch</span>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--yellow-bg);border-color:var(--yellow-bd);color:var(--yellow)">5</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">Starting a new feature (every few days/weeks)</div>
+        <div class="flow-desc">Replaces your kibana-feat branch. Kills the old session, removes the old worktree, creates a new one, regenerates config files, and rebuilds the session.</div>
+        <span class="code-inline">~/dev-start.sh switch feature/burn-rate-fix</span>
+      </div>
+    </div>
+
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">6</div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">End of day</div>
+        <div class="flow-desc">Just detach. Sessions keep running in the background. Tomorrow, reattach and everything is exactly where you left it.</div>
+        <span class="code-inline">Ctrl-a d</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ══════════════════════ REFERENCE ══════════════════════ -->
+<section>
+  <div class="section-label">06 · Reference</div>
+  <h2>Command Reference</h2>
+
+  <div class="cmd-grid">
+
+    <div class="cmd-group">
+      <div class="cmd-group-header" style="color:var(--green)">dev-start.sh commands</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh</span><span class="cmd-desc">start / attach all sessions</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh switch &lt;branch&gt;</span><span class="cmd-desc">switch feat to new branch</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt;</span><span class="cmd-desc">spin up a temporary session for any branch (PR review, hotfix, testing)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt; --full</span><span class="cmd-desc">create full session</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill &lt;branch&gt;</span><span class="cmd-desc">kill session + remove worktree</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill-all</span><span class="cmd-desc">kill all kibana-* sessions</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh list</span><span class="cmd-desc">list sessions, ports, worktrees + mismatch warnings</span></div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-header" style="color:var(--blue)">tmux shortcuts (prefix: Ctrl-a)</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a s</span><span class="cmd-desc">session switcher</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a w</span><span class="cmd-desc">window overview</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a [0-9]</span><span class="cmd-desc">jump to window by number</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a d</span><span class="cmd-desc">detach (sessions keep running)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a [</span><span class="cmd-desc">scroll / copy mode</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--blue)">Ctrl-a |  /  -</span><span class="cmd-desc">split pane vertical / horizontal</span></div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-header" style="color:var(--yellow)">ports at a glance</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--yellow)">kibana-main</span><span class="cmd-desc">Kibana :5602 · ES :9201</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--yellow)">kibana-feat</span><span class="cmd-desc">Kibana :5601 · ES :9200</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--yellow)">kibana-&lt;branch&gt;</span><span class="cmd-desc">auto-assigned :5603+ · ES :9202+ — created by <strong>new</strong> command</span></div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-header" style="color:var(--purple)">generated files per worktree</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">config/kibana.dev.yml</span><span class="cmd-desc">copied from ~/Documents/Dev_setup/kibana.dev.yml template, ports substituted</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">.cursor/mcp.json</span><span class="cmd-desc">KIBANA_URL for playwright-mcp, scoped per worktree</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">~/.kibana-dev-state</span><span class="cmd-desc">tracks current feat branch + path</span></div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <div class="section-label">07 · Gotchas</div>
+  <h2>Known Behaviours & Edge Cases</h2>
+  <div class="card card-red" style="margin-top:20px">
+    <div class="card-label">Things to be aware of</div>
+    <ul class="cross">
+      <li><strong>Branch names with dots</strong> (e.g. <code>9.3</code>) — tmux interprets <code>.</code> as a session:window separator. The script converts dots to hyphens in the session name (<code>kibana-9-3</code>), but the worktree folder keeps the original name (<code>worktrees/9.3</code>).</li>
+      <li><strong><code>kibana.dev.yml</code> not regenerated on <code>new</code></strong> — if a worktree already has the file with wrong ports, the script skips it. Run <code>dev-start.sh list</code> to see port mismatch warnings, then delete the file and re-run.</li>
+      <li><strong>Sessions lost on Mac reboot</strong> — tmux survives terminal close but not reboots. Run <code>~/dev-start.sh</code> each morning to recreate. Consider tmux-resurrect for auto-restore.</li>
+      <li><strong>ES trigger string may be outdated</strong> — <code>kbn-start.sh</code> watches for a specific string in the ES log to know when to fire Kibana. If ES version changes and the string changes, auto-start won't fire. Check <code>/tmp/es-*.log</code> if Kibana never starts.</li>
+      <li><strong>Port mismatch after <code>new</code> → <code>switch</code></strong> — if you ran <code>new</code> on a branch and then <code>switch</code> to the same branch, <code>kibana.dev.yml</code> will have the temporary port (5603+) not the feat port (5601). Delete and rerun <code>switch</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>Kibana Observability · Local Dev Workflow · tmux + git worktrees + dev-start.sh</footer>
+
+</div>
+
+<script>
+  function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    const next = isDark ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    document.getElementById('toggle-label').textContent = next.toUpperCase();
+    try { localStorage.setItem('kibana-workflow-theme', next); } catch(e) {}
+  }
+
+  // Restore saved preference
+  try {
+    const saved = localStorage.getItem('kibana-workflow-theme');
+    if (saved && saved !== 'dark') {
+      document.documentElement.setAttribute('data-theme', saved);
+      document.getElementById('toggle-label').textContent = saved.toUpperCase();
+    }
+  } catch(e) {}
+</script>
+
+</body>
+</html>
