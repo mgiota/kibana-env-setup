@@ -2,6 +2,8 @@
 
 A tmux + git worktrees setup that eliminates context-switching overhead, runs multiple Kibana instances simultaneously, and automates the full bootstrap → ES → Kibana startup sequence.
 
+<a href="https://mgiota.github.io/kibana-env-setup/kibana-dev-workflow.html" target="_blank">📊 Visual workflow guide</a>
+
 ## What it does
 
 - Creates two permanent tmux sessions: `kibana-main` (main branch) and `kibana-feat` (your active feature branch)
@@ -13,6 +15,16 @@ A tmux + git worktrees setup that eliminates context-switching overhead, runs mu
 ---
 
 ## Prerequisites
+
+**Kibana repo** cloned on your machine — either the main repo or your own fork:
+```bash
+# elastic/kibana directly
+git clone https://github.com/elastic/kibana.git ~/Documents/Development/kibana
+
+# or your fork
+git clone https://github.com/<your-username>/kibana.git ~/Documents/Development/kibana
+```
+> The path above matches the default in `dev-start.sh`. If you clone elsewhere, update `KIBANA_MAIN_DIR` in the script.
 
 **tmux**
 ```bash
