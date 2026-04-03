@@ -79,8 +79,10 @@ WORKTREE_BASE="$HOME/Documents/Development/worktrees"  # where worktrees will be
 mkdir -p ~/bin
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh ~/dev-start.sh
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh ~/bin/kbn-start.sh
+ln -s ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh ~/bin/run-checks
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh
+chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh
 ```
 
 **4. Kibana config template**
@@ -120,7 +122,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh                          # start/attach all sessions
 ~/dev-start.sh switch <branch>          # replace kibana-feat with a new branch
 ~/dev-start.sh new <branch>             # spin up a temporary session (PR review, hotfix)
-~/dev-start.sh new <branch> --full      # temporary session with full 7-window layout
+~/dev-start.sh new <branch> --full      # temporary session with full layout (checks + ftr)
 ~/dev-start.sh kill <branch>            # kill session + remove worktree
 ~/dev-start.sh kill-all                 # kill all kibana-* sessions
 ~/dev-start.sh list                     # show sessions, worktrees, port assignments + warnings
@@ -167,8 +169,10 @@ Full sessions (`kibana-feat`, `kibana-main`, or `new --full`) also get:
 
 | # | Window | Panes |
 |---|---|---|
-| 5 | tests | top: unit tests · bottom: scout tests |
+| 5 | checks | top-left: eslint · top-right: type check · bottom: jest |
 | 6 | ftr | left: ftr server · right: ftr runner |
+
+The `checks` window uses `run-checks.sh` — a helper script that scopes lint, type check, and jest to files/plugins changed on your branch (via `git merge-base HEAD upstream/main`). Press Enter in any pane to run that check.
 
 ---
 

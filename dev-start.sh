@@ -26,7 +26,7 @@
 #    2: scripts   [left: synthetics    |  right: inject data]
 #    3: git       [single pane]
 #    4: editor    [single pane — vim, /etc/hosts, config files]
-#    5: tests     [top: unit tests     |  bottom: scout tests]
+#    5: checks    [top-left: eslint | top-right: type check | bottom: jest]
 #    6: ftr       [left: ftr server    |  right: ftr runner]
 #
 #  WINDOWS PER SESSION (lightweight):
@@ -43,6 +43,8 @@ WORKTREE_BASE="$HOME/Documents/Development/worktrees"
 STATE_FILE="$HOME/.kibana-dev-state"
 KBN_START="$HOME/bin/kbn-start.sh"
 TEMPLATE="${0:A:h}/kibana.dev.yml.template"
+RUN_CHECKS="${0:A:h}/run-checks.sh"
+RUN_DATA="${0:A:h}/run-data.sh"
 
 # kibana-main — permanent, never changes
 MAIN_KIBANA_PORT=5602
@@ -230,7 +232,8 @@ build_kibana_session() {
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
   tmux send-keys -t "${session}:scripts.0"  "cd $dir" Enter
-  tmux send-keys -t "${session}:scripts.1" "cd $dir" Enter
+  # right pane — SLO data ingestion (data_forge with session-specific ports)
+  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
   tmux select-pane -t "${session}:scripts.0"
 
   # 3: git
@@ -241,18 +244,20 @@ build_kibana_session() {
   tmux new-window -t "$session" -n "editor" -c "$dir"
   tmux send-keys -t "${session}:editor" "cd $dir" Enter
 
-  # 5: tests
-  tmux new-window -t "$session" -n "tests" -c "$dir"
-  tmux split-window -v -c "$dir" -t "${session}:tests"
-  tmux send-keys -t "${session}:tests.0"    "cd $dir" Enter
-  tmux send-keys -t "${session}:tests.1" "cd $dir" Enter
-  tmux select-pane -t "${session}:tests.0"
+  # 5: checks [top-left: eslint | top-right: type check | bottom: jest]
+  tmux new-window -t "$session" -n "checks" -c "$dir"
+  tmux split-window -v -c "$dir" -t "${session}:checks"          # pane 1: bottom (jest)
+  tmux split-window -h -c "$dir" -t "${session}:checks.0"        # pane 2: top-right (type check)
+  tmux send-keys -t "${session}:checks.0" "$RUN_CHECKS lint"
+  tmux send-keys -t "${session}:checks.2" "$RUN_CHECKS typecheck"
+  tmux send-keys -t "${session}:checks.1" "$RUN_CHECKS jest"
+  tmux select-pane -t "${session}:checks.0"
 
-  # 6: ftr
+  # 6: ftr [left: ftr server | right: ftr runner]
   tmux new-window -t "$session" -n "ftr" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:ftr"
-  tmux send-keys -t "${session}:ftr.0"  "cd $dir" Enter
-  tmux send-keys -t "${session}:ftr.1" "cd $dir" Enter
+  tmux send-keys -t "${session}:ftr.0" "export NVM_DIR=\"\$HOME/.nvm\" && [[ -s \"\$NVM_DIR/nvm.sh\" ]] && source \"\$NVM_DIR/nvm.sh\" && nvm use && yarn test:ftr:server"
+  tmux send-keys -t "${session}:ftr.1" "export NVM_DIR=\"\$HOME/.nvm\" && [[ -s \"\$NVM_DIR/nvm.sh\" ]] && source \"\$NVM_DIR/nvm.sh\" && nvm use && yarn test:ftr:runner"
   tmux select-pane -t "${session}:ftr.0"
 
   tmux select-window -t "${session}:servers"
@@ -273,7 +278,8 @@ build_lightweight_session() {
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
   tmux send-keys -t "${session}:scripts.0"  "cd $dir" Enter
-  tmux send-keys -t "${session}:scripts.1" "cd $dir" Enter
+  # right pane — SLO data ingestion (data_forge with session-specific ports)
+  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
   tmux select-pane -t "${session}:scripts.0"
 
   # 3: git
