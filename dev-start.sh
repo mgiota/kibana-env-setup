@@ -569,7 +569,11 @@ cmd_list() {
 
   echo ""
   echo "${BOLD}Git worktrees:${NC}"
+  local wt_path
   git -C "$KIBANA_MAIN_DIR" worktree list 2>/dev/null | while read line; do
+    wt_path=$(echo "$line" | awk '{print $1}')
+    # Only show the main repo and worktrees under WORKTREE_BASE
+    [[ "$wt_path" == "$KIBANA_MAIN_DIR" || "$wt_path" == "$WORKTREE_BASE"/* ]] || continue
     echo "  ${BLUE}↳${NC} $line"
   done
 
