@@ -248,6 +248,12 @@ The `renew` command pulls fresh credentials from oblt-cli and writes them to `~/
 
 Find your cluster name with `oblt-cli cluster list`. When a cluster expires and a new one is created with a different name, just run `renew` with the new name (and `--save` to remember it).
 
+`renew` automatically regenerates `kibana.dev.yml` for any active remote sessions. After renewing, just restart to pick up the new credentials:
+```bash
+~/dev-start.sh renew --cluster-name new-cluster
+~/dev-start.sh restart feat
+```
+
 **Manual alternative:** Copy `kibana-remote-es.yml.example` to `~/.kibana-remote-es.yml` and paste your oblt-cli output there. The `server:` block is automatically stripped and replaced with the correct port. Everything else is kept: ES connection, monitoring indices, APM sources, encryption keys, uptime config, uiSettings, etc.
 
 ### How it works

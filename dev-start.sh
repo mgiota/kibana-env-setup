@@ -1103,27 +1103,52 @@ cmd_renew() {
     echo "  Next time you can just run: ${GREEN}./dev-start.sh renew${NC}"
   fi
 
-  # Check for active --remote sessions and offer to regenerate
-  local remote_sessions=()
-  for session in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^kibana-"); do
-    local session_dir
-    session_dir=$(tmux show-environment -t "$session" KIBANA_DIR 2>/dev/null | sed 's/.*=//')
-    if [[ -n "$session_dir" && -f "$session_dir/config/kibana.dev.yml" ]]; then
-      if grep -q "Remote ES" "$session_dir/config/kibana.dev.yml" 2>/dev/null; then
-        remote_sessions+=("$session")
-      fi
+  # Regenerate kibana.dev.yml for any active remote sessions
+  local regenerated=()
+
+  # Check kibana-main
+  if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
+     grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
+    local main_port
+    main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+    generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
+    regenerated+=("kibana-main")
+  fi
+
+  # Check kibana-feat
+  if [[ -f "$STATE_FILE" ]]; then
+    source "$STATE_FILE"
+    if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
+       grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
+      local feat_port
+      feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+      generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
+      regenerated+=("kibana-feat")
     fi
+  fi
+
+  # Check hotfix sessions
+  for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+    [[ -f "$yml" ]] || continue
+    grep -q "Remote ES" "$yml" 2>/dev/null || continue
+    local wt_dir wt_name wt_port
+    wt_dir=$(dirname "$(dirname "$yml")")
+    wt_name=$(basename "$wt_dir")
+    # Skip feat worktree (already handled above)
+    [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
+    wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+    generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
+    regenerated+=("kibana-$wt_name")
   done
 
-  if [[ ${#remote_sessions[@]} -gt 0 ]]; then
+  if [[ ${#regenerated[@]} -gt 0 ]]; then
     echo ""
-    echo "${YELLOW}Active remote sessions detected:${NC}"
-    for session in "${remote_sessions[@]}"; do
-      echo "  ${BLUE}↳${NC} $session"
+    echo "${GREEN}✓${NC} Regenerated kibana.dev.yml for remote sessions:"
+    for s in "${regenerated[@]}"; do
+      echo "  ${BLUE}↳${NC} $s"
     done
     echo ""
-    echo "  Restart Kibana in those sessions to pick up the new credentials."
-    echo "  (The config will be regenerated on next ${GREEN}switch --remote${NC} or ${GREEN}new --remote${NC})"
+    echo "  Run ${GREEN}./dev-start.sh restart <session>${NC} to pick up the new credentials."
   fi
 
   echo ""
