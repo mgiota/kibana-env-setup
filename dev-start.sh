@@ -3,26 +3,23 @@
 #  dev-start.sh — tmux + git worktree manager for Kibana
 #
 #  USAGE:
-#    ./dev-start.sh                        → start/attach permanent sessions
-#    ./dev-start.sh switch <branch>          → switch kibana-feat to a new branch (local ES)
-#    ./dev-start.sh switch <branch> --remote → switch with remote ES (~/.kibana-remote-es.yml)
-#    ./dev-start.sh new <branch>             → create worktree + lightweight hotfix session
-#    ./dev-start.sh new <branch> --full      → create worktree + full session
-#    ./dev-start.sh new <branch> --remote    → create session with remote ES
-#    ./dev-start.sh attach <branch>        → attach to existing session
-#    ./dev-start.sh list                   → list sessions, worktrees & ports
-#    ./dev-start.sh clean                  → list ES data folders + sizes
-#    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
-#    ./dev-start.sh clean all              → delete ALL ES data
-#    ./dev-start.sh sync                       → regenerate kibana.dev.yml from template (all sessions)
-#    ./dev-start.sh sync main|feat|<branch>    → regenerate for a specific session
-#    ./dev-start.sh status                     → health check all sessions (ping ES + Kibana)
-#    ./dev-start.sh restart main|feat|<branch> → restart ES + Kibana in a running session
-#    ./dev-start.sh renew                  → refresh remote ES credentials (auto-detects cluster)
-#    ./dev-start.sh renew                  → refresh using saved cluster name
-#    ./dev-start.sh setup                  → interactive config wizard (paths, ports, symlinks)
-#    ./dev-start.sh kill <branch>          → kill session + remove worktree
-#    ./dev-start.sh kill-all               → kill all kibana-* sessions
+#    Sessions:
+#      (no args)                              start/attach kibana-main + kibana-feat
+#      switch <branch> [--remote]             switch kibana-feat to a branch
+#      new <branch> [--full] [--remote]       create worktree + hotfix session
+#      attach <branch>                        attach to an existing session
+#      kill <branch>                          kill session + remove worktree
+#      kill-all                               kill ALL kibana-* sessions
+#    Operations:
+#      restart <main|feat|branch>             restart ES + Kibana in a running session
+#      renew [--cluster-name <n>] [--save]    refresh remote ES credentials (auto-detects)
+#      sync [main|feat|branch|all]            regenerate kibana.dev.yml from template
+#      clean [main|feat|name|all]             list or delete ES data folders
+#    Info:
+#      list                                   sessions, worktrees & port assignments
+#      status                                 health check — ping ES + Kibana
+#      setup                                  interactive config wizard
+#      help                                   show help
 #
 #  FILES:
 #    ~/bin/kbn-start.sh        helper script (must be installed first)
@@ -549,7 +546,7 @@ EOF
   fi
 
   echo ""
-  echo "${GREEN}✓ Setup complete!${NC}"
+  echo "${GREEN}✓${NC} Setup complete!"
   echo ""
   echo "  Next steps:"
   echo "    ${GREEN}~/dev-start.sh switch feature/your-branch${NC}   ← set your first feature branch"
@@ -859,7 +856,7 @@ cmd_switch() {
 
   if [[ -z "$branch" ]]; then
     echo "${RED}Error:${NC} Please provide a branch name."
-    echo "  Usage: ./dev-start.sh switch <branch> [--remote]"
+    echo "  Usage: ${GREEN}./dev-start.sh switch <branch> [--remote]${NC}"
     exit 1
   fi
 
@@ -963,7 +960,7 @@ cmd_new() {
 
   if [[ -z "$branch" ]]; then
     echo "${RED}Error:${NC} Please provide a branch name."
-    echo "  Usage: ./dev-start.sh new <branch> [--full] [--remote]"
+    echo "  Usage: ${GREEN}./dev-start.sh new <branch> [--full] [--remote]${NC}"
     exit 1
   fi
 
@@ -1541,7 +1538,7 @@ cmd_main() {
       existing_es=$(grep -E "^ *- \"?http://localhost:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
       if { [[ -n "$existing_k" && "$existing_k" != "$FEAT_KIBANA_PORT" ]] || \
            [[ -n "$existing_es" && "$existing_es" != "$FEAT_ES_PORT" ]]; }; then
-        echo "${YELLOW}⚠ Warning:${NC} kibana.dev.yml has wrong ports (Kibana: $existing_k, ES: $existing_es) — regenerating..."
+        echo "${YELLOW}⚠${NC} kibana.dev.yml has wrong ports (Kibana: $existing_k, ES: $existing_es) — regenerating..."
         generate_kibana_dev_yml "$FEAT_DIR" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT"
       fi
     else
