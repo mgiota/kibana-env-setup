@@ -232,9 +232,9 @@ build_kibana_session() {
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
   # left pane — synthetics private location (with session-specific ports)
-  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics ${kibana_port} ${es_port}"
+  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics"
   # right pane — SLO data ingestion (data_forge with session-specific ports)
-  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
+  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo"
   tmux select-pane -t "${session}:scripts.0"
 
   # 3: git
@@ -279,9 +279,9 @@ build_lightweight_session() {
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
   # left pane — synthetics private location (with session-specific ports)
-  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics ${kibana_port} ${es_port}"
+  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics"
   # right pane — SLO data ingestion (data_forge with session-specific ports)
-  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
+  tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo"
   tmux select-pane -t "${session}:scripts.0"
 
   # 3: git
@@ -482,7 +482,11 @@ cmd_switch() {
     echo "${BLUE}→${NC} Worktree already exists at $worktree_dir, reusing."
   fi
 
-  generate_kibana_dev_yml "$worktree_dir" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT"
+  if [[ -f "$worktree_dir/config/kibana.dev.yml" ]]; then
+    echo "${YELLOW}⚠${NC}  kibana.dev.yml already exists — keeping it. Delete and re-run switch to regenerate."
+  else
+    generate_kibana_dev_yml "$worktree_dir" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT"
+  fi
   generate_cursor_mcp_json "$worktree_dir" "$FEAT_KIBANA_PORT" "$FEAT_HOST"
   save_feat_state "$branch" "$worktree_dir"
 

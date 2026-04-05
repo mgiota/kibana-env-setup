@@ -99,28 +99,60 @@ nvm use
 echo "▶ Running yarn kbn bootstrap..."
 yarn kbn bootstrap
 
-echo "▶ Starting ES... (Kibana will auto-start once ES is ready)"
-(
-  tail -n 0 -F "$LOGFILE" | while read -r line; do
-    if [[ "$line" == *"$TRIGGER_STRING"* ]]; then
-      tmux send-keys -t "$TMUX_TARGET_PANE" \
-        "export NVM_DIR=\"\$HOME/.nvm\" && [[ -s \"\$NVM_DIR/nvm.sh\" ]] && source \"\$NVM_DIR/nvm.sh\" && nvm use" \
-        C-m
-      sleep 2
-      tmux send-keys -t "$TMUX_TARGET_PANE" \
-        "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT} --elasticsearch.hosts=http://localhost:${ES_PORT}" \
-        C-m
-      break
-    fi
-  done
-) &
+# ── Detect remote ES from kibana.dev.yml ──────────────────
+KIBANA_DEV_YML="config/kibana.dev.yml"
+USE_REMOTE_ES=false
+if [[ -f "$KIBANA_DEV_YML" ]]; then
+  # Match both formats:
+  #   Template format:  elasticsearch.hosts:\n  - "http://..."
+  #   oblt-cli format:  elasticsearch:\n  hosts: https://...
+  ES_HOST_LINE=$(grep -E "^ *(- \"?|hosts: *)https?://" "$KIBANA_DEV_YML" 2>/dev/null \
+    | grep -v "localhost" \
+    | grep -v "127\.0\.0\.1" \
+    | head -1 \
+    | sed 's|^ *- *||; s|^ *hosts: *||' | tr -d '"' | tr -d ' ' || true)
+  if [[ -n "$ES_HOST_LINE" ]]; then
+    USE_REMOTE_ES=true
+  fi
+fi
 
-yarn es snapshot \
-  --license trial \
-  -E node.name="${ES_DATA_FOLDER}" \
-  -E http.port="${ES_PORT}" \
-  -E transport.port="${ES_TRANSPORT_PORT}" \
-  -E discovery.type=single-node \
-  -E path.data="${ES_DATA_PATH}" \
-  ${ES_FLAGS} \
-  2>&1 | tee -a "$LOGFILE"
+if [[ "$USE_REMOTE_ES" == true ]]; then
+  echo "▶ Remote ES detected: ${ES_HOST_LINE}"
+  echo "  Skipping local ES — starting Kibana directly..."
+  echo ""
+  tmux send-keys -t "$TMUX_TARGET_PANE" \
+    "export NVM_DIR=\"\$HOME/.nvm\" && [[ -s \"\$NVM_DIR/nvm.sh\" ]] && source \"\$NVM_DIR/nvm.sh\" && nvm use" \
+    C-m
+  sleep 2
+  tmux send-keys -t "$TMUX_TARGET_PANE" \
+    "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT}" \
+    C-m
+  echo "✅  Kibana starting on http://${KIBANA_HOST}:${KIBANA_PORT} → ES: ${ES_HOST_LINE}"
+  echo "    (ES host is configured in ${KIBANA_DEV_YML})"
+else
+  echo "▶ Starting local ES... (Kibana will auto-start once ES is ready)"
+  (
+    tail -n 0 -F "$LOGFILE" | while read -r line; do
+      if [[ "$line" == *"$TRIGGER_STRING"* ]]; then
+        tmux send-keys -t "$TMUX_TARGET_PANE" \
+          "export NVM_DIR=\"\$HOME/.nvm\" && [[ -s \"\$NVM_DIR/nvm.sh\" ]] && source \"\$NVM_DIR/nvm.sh\" && nvm use" \
+          C-m
+        sleep 2
+        tmux send-keys -t "$TMUX_TARGET_PANE" \
+          "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT} --elasticsearch.hosts=http://localhost:${ES_PORT}" \
+          C-m
+        break
+      fi
+    done
+  ) &
+
+  yarn es snapshot \
+    --license trial \
+    -E node.name="${ES_DATA_FOLDER}" \
+    -E http.port="${ES_PORT}" \
+    -E transport.port="${ES_TRANSPORT_PORT}" \
+    -E discovery.type=single-node \
+    -E path.data="${ES_DATA_PATH}" \
+    ${ES_FLAGS} \
+    2>&1 | tee -a "$LOGFILE"
+fi
