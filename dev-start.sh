@@ -14,6 +14,7 @@
 #    ./dev-start.sh clean                  → list ES data folders + sizes
 #    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
 #    ./dev-start.sh clean all              → delete ALL ES data
+#    ./dev-start.sh restart main|feat|<branch> → restart ES + Kibana in a running session
 #    ./dev-start.sh renew --cluster-name X → refresh remote ES credentials from oblt-cli
 #    ./dev-start.sh renew                  → refresh using saved cluster name
 #    ./dev-start.sh setup                  → interactive config wizard (paths, ports, symlinks)
@@ -375,6 +376,7 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
   echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
   echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
+  echo "  ${GREEN}./dev-start.sh restart main|feat|<branch>${NC} Restart ES + Kibana in a running session"
   echo "  ${GREEN}./dev-start.sh renew --cluster-name <n>${NC} Refresh remote ES credentials from oblt-cli"
   echo "  ${GREEN}./dev-start.sh renew${NC}                   Refresh using saved cluster name"
   echo "  ${GREEN}./dev-start.sh setup${NC}                   Interactive config wizard (first-time setup)"
@@ -391,6 +393,7 @@ print_help() {
   echo "    ./dev-start.sh switch feature/slo-filters --remote"
   echo "    ./dev-start.sh new fix/slo-crash"
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
+  echo "    ./dev-start.sh restart feat"
   echo "    ./dev-start.sh renew --cluster-name edge-oblt --save"
   echo "    ./dev-start.sh kill slo-crash"
   echo ""
@@ -914,6 +917,110 @@ cmd_kill_all() {
   done
 }
 
+cmd_restart() {
+  local target="${1:-}"
+
+  if [[ -z "$target" ]]; then
+    echo "${RED}Error:${NC} Please specify which session to restart."
+    echo ""
+    echo "  Usage: ${GREEN}./dev-start.sh restart main|feat|<branch>${NC}"
+    echo ""
+    echo "  Examples:"
+    echo "    ${GREEN}./dev-start.sh restart feat${NC}"
+    echo "    ${GREEN}./dev-start.sh restart main${NC}"
+    echo "    ${GREEN}./dev-start.sh restart slo-crash${NC}"
+    return 1
+  fi
+
+  # Resolve target → session name + directory
+  local session="" dir=""
+  case "$target" in
+    main)
+      session="kibana-main"
+      dir="$KIBANA_MAIN_DIR"
+      ;;
+    feat)
+      session="kibana-feat"
+      if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+        dir="$FEAT_DIR"
+      else
+        echo "${RED}Error:${NC} No feat state found. Run ${GREEN}./dev-start.sh switch <branch>${NC} first."
+        return 1
+      fi
+      ;;
+    *)
+      session=$(branch_to_session "$target")
+      local short_name
+      short_name=$(echo "$target" | sed 's|.*/||')
+      dir="$WORKTREE_BASE/$short_name"
+      ;;
+  esac
+
+  # Verify the session exists
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    echo "${RED}Error:${NC} Session '$session' is not running."
+    echo "  Check active sessions with: ${GREEN}./dev-start.sh list${NC}"
+    return 1
+  fi
+
+  # Read ports and detect local vs remote from existing config
+  local yml="$dir/config/kibana.dev.yml"
+  if [[ ! -f "$yml" ]]; then
+    echo "${RED}Error:${NC} No kibana.dev.yml found at $dir/config/"
+    return 1
+  fi
+
+  local kibana_port es_port host data_folder is_remote
+  kibana_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+  es_port=$(grep -E "^ *- \"?http://localhost:" "$yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+  is_remote=false
+
+  if [[ -z "$es_port" ]]; then
+    is_remote=true
+    es_port="remote"
+  fi
+
+  # Determine host and data folder based on session type
+  case "$target" in
+    main) host="$MAIN_HOST"; data_folder="$MAIN_DATA_FOLDER" ;;
+    feat)
+      host="$FEAT_HOST"
+      data_folder=$(echo "$FEAT_BRANCH" | sed 's|.*/||')
+      ;;
+    *)
+      host="localhost"
+      data_folder=$(echo "$target" | sed 's|.*/||')
+      ;;
+  esac
+
+  echo ""
+  echo "${BOLD}Restarting $session${NC}"
+
+  # Kill running processes in server panes (Ctrl-C both panes)
+  echo "${BLUE}→${NC} Stopping ES + Kibana..."
+  tmux send-keys -t "${session}:servers.0" C-c
+  tmux send-keys -t "${session}:servers.1" C-c
+  # Give processes a moment to exit cleanly
+  sleep 1
+
+  # Re-launch kbn-start in the left pane
+  echo "${BLUE}→${NC} Re-launching kbn-start..."
+  tmux send-keys -t "${session}:servers.0" \
+    "$KBN_START $data_folder --kibana-port $kibana_port --es-port ${es_port} --host $host" \
+    Enter
+
+  echo ""
+  echo "${GREEN}✓${NC} Restart initiated for ${BOLD}$session${NC}"
+  if [[ "$is_remote" == true ]]; then
+    echo "   Kibana  → http://localhost:${kibana_port}  (remote ES)"
+  else
+    echo "   Kibana  → http://localhost:${kibana_port}"
+    echo "   ES      → http://localhost:${es_port}"
+  fi
+  echo ""
+}
+
 cmd_renew() {
   local cluster_name=""
   local save_config=false
@@ -1175,7 +1282,7 @@ cmd_main() {
 
 # ── FIRST-RUN DETECTION ───────────────────────────────────
 # If no config file and not running setup/help, nudge the user
-if [[ ! -f "$KIBANA_DEV_CONF" && "${1:-main}" != "setup" && "${1:-main}" != "renew" && "${1:-main}" != "help" && "${1:-}" != "--help" ]]; then
+if [[ ! -f "$KIBANA_DEV_CONF" && "${1:-main}" != "setup" && "${1:-main}" != "renew" && "${1:-main}" != "restart" && "${1:-main}" != "help" && "${1:-}" != "--help" ]]; then
   echo ""
   echo "${YELLOW}⚠${NC}  No config file found. Run the setup wizard to configure paths and ports:"
   echo "     ${GREEN}./dev-start.sh setup${NC}"
@@ -1188,6 +1295,7 @@ fi
 case "${1:-main}" in
   main)        cmd_main ;;
   setup)       cmd_setup ;;
+  restart)     cmd_restart "$2" ;;
   renew)       shift; cmd_renew "$@" ;;
   switch)      shift; cmd_switch "$@" ;;
   new)         shift; cmd_new "$@" ;;
