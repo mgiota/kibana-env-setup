@@ -290,6 +290,29 @@ run-checks.sh jest       # jest per changed plugin
 
 ---
 
+## Tests
+
+The project includes a test suite that validates config generation, remote ES detection, credential parsing, argument parsing, and port assignment logic. Run it with:
+
+```bash
+./tests/run-tests.sh              # all tests
+./tests/run-tests.sh config       # only config generation tests
+./tests/run-tests.sh detection    # only ES detection tests
+./tests/run-tests.sh run-data     # only run-data parsing tests
+./tests/run-tests.sh arg          # only argument parsing tests
+```
+
+The tests use a lightweight bash framework (`tests/test-helpers.sh`) — no external dependencies. Each test file creates temporary directories, generates configs, and asserts expected behaviour. Safe to run at any time.
+
+| Suite | What it covers |
+|---|---|
+| `test-config-generation` | Local + remote `kibana.dev.yml` generation, port substitution, placeholder removal, server block stripping, switching between local/remote |
+| `test-es-detection` | Grep pattern matching for both YAML formats (template + oblt-cli), localhost/127.0.0.1 filtering, commented lines, edge cases |
+| `test-run-data` | Credential parsing, remote detection, concurrency reduction, password defaults, synthetics guard |
+| `test-arg-parsing` | `kbn-start.sh` flag parsing, `switch`/`new` flag parsing, port reservation logic |
+
+---
+
 ## Known behaviours & gotchas
 
 - **Branch names with dots** (e.g. `9.3`) — tmux can't use dots in session names. The script converts them to hyphens: `kibana-9-3`. The worktree folder keeps the original name.

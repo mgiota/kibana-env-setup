@@ -1285,7 +1285,35 @@ elasticsearch.password: "changeme"</pre>
 </section>
 
 <section>
-  <div class="section-label">08 · Gotchas</div>
+  <div class="section-label">08 · Tests</div>
+  <h2>Test Suite</h2>
+  <div class="card card-green" style="margin-top:20px">
+    <div class="card-label">Running tests</div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh</span><span class="cmd-desc">run all 86 tests across 4 suites</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh config</span><span class="cmd-desc">config generation only</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh detection</span><span class="cmd-desc">remote ES detection only</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh run-data</span><span class="cmd-desc">run-data.sh parsing only</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh arg</span><span class="cmd-desc">argument parsing only</span></div>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <div class="card-label">Test suites</div>
+    <table class="layout-table" style="width:100%">
+      <tr><td style="width:30%"><code>test-config-generation</code></td><td>Local + remote <code>kibana.dev.yml</code> generation, port substitution, placeholder removal, server block stripping, switching between local/remote (24 tests)</td></tr>
+      <tr><td><code>test-es-detection</code></td><td>Grep pattern matching for both YAML formats (template + oblt-cli), localhost/127.0.0.1 filtering, commented lines, edge cases (15 tests)</td></tr>
+      <tr><td><code>test-run-data</code></td><td>Credential parsing, remote detection, concurrency reduction, password defaults, synthetics guard (18 tests)</td></tr>
+      <tr><td><code>test-arg-parsing</code></td><td><code>kbn-start.sh</code> flag parsing, <code>switch</code>/<code>new</code> flag parsing, port reservation logic (29 tests)</td></tr>
+    </table>
+  </div>
+
+  <div class="card card-blue" style="margin-top:20px">
+    <div class="card-label">For contributors</div>
+    <p style="margin:0">Tests are pure bash — no external dependencies. Each file creates temp directories, generates configs, and validates expected behaviour. Run the suite before submitting changes to verify nothing breaks.</p>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">09 · Gotchas</div>
   <h2>Known Behaviours & Edge Cases</h2>
   <div class="card card-red" style="margin-top:20px">
     <div class="card-label">Things to be aware of</div>
