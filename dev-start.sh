@@ -14,6 +14,7 @@
 #    ./dev-start.sh clean                  → list ES data folders + sizes
 #    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
 #    ./dev-start.sh clean all              → delete ALL ES data
+#    ./dev-start.sh status                     → health check all sessions (ping ES + Kibana)
 #    ./dev-start.sh restart main|feat|<branch> → restart ES + Kibana in a running session
 #    ./dev-start.sh renew --cluster-name X → refresh remote ES credentials from oblt-cli
 #    ./dev-start.sh renew                  → refresh using saved cluster name
@@ -376,6 +377,7 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
   echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
   echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
+  echo "  ${GREEN}./dev-start.sh status${NC}                    Health check all sessions (ping ES + Kibana)"
   echo "  ${GREEN}./dev-start.sh restart main|feat|<branch>${NC} Restart ES + Kibana in a running session"
   echo "  ${GREEN}./dev-start.sh renew --cluster-name <n>${NC} Refresh remote ES credentials from oblt-cli"
   echo "  ${GREEN}./dev-start.sh renew${NC}                   Refresh using saved cluster name"
@@ -637,6 +639,109 @@ cmd_list() {
     for w in "${warnings[@]}"; do
       echo "  ${YELLOW}⚠${NC} $w"
     done
+  fi
+
+  echo ""
+}
+
+cmd_status() {
+  echo ""
+  echo "${BOLD}Health check:${NC}"
+  echo ""
+
+  local has_sessions=false
+
+  # Helper: check a single session
+  check_session() {
+    local label="$1" yml="$2"
+    has_sessions=true
+
+    local kibana_port es_port es_host is_remote
+    kibana_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+
+    # Detect local vs remote
+    es_port=$(grep -E "^ *- \"?http://localhost:" "$yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+    es_host=$(grep -E "^ *hosts: https?://" "$yml" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+    is_remote=false
+    [[ -z "$es_port" ]] && is_remote=true
+
+    # Check Kibana
+    local kbn_status kbn_color
+    local kbn_http
+    kbn_http=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${kibana_port}/api/status" --max-time 3 2>/dev/null)
+    [[ -z "$kbn_http" ]] && kbn_http="000"
+    if [[ "$kbn_http" == "200" ]]; then
+      kbn_status="up" ; kbn_color="$GREEN"
+    elif [[ "$kbn_http" == "000" ]]; then
+      kbn_status="down" ; kbn_color="$RED"
+    else
+      kbn_status="starting ($kbn_http)" ; kbn_color="$YELLOW"
+    fi
+
+    # Check ES
+    local es_status es_color es_display
+    if [[ "$is_remote" == true ]]; then
+      es_display="$es_host"
+      local es_http
+      es_http=$(curl -s -o /dev/null -w "%{http_code}" "$es_host" --max-time 5 2>/dev/null)
+      [[ -z "$es_http" ]] && es_http="000"
+      if [[ "$es_http" == "200" ]]; then
+        es_status="up" ; es_color="$GREEN"
+      elif [[ "$es_http" == "401" ]]; then
+        # 401 means ES is reachable but needs auth — that's up
+        es_status="up" ; es_color="$GREEN"
+      elif [[ "$es_http" == "000" ]]; then
+        es_status="unreachable" ; es_color="$RED"
+      else
+        es_status="error ($es_http)" ; es_color="$YELLOW"
+      fi
+    else
+      es_display=":$es_port"
+      local es_http
+      es_http=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${es_port}/" --max-time 3 2>/dev/null)
+      [[ -z "$es_http" ]] && es_http="000"
+      if [[ "$es_http" == "200" ]]; then
+        es_status="up" ; es_color="$GREEN"
+      elif [[ "$es_http" == "000" ]]; then
+        es_status="down" ; es_color="$RED"
+      else
+        es_status="starting ($es_http)" ; es_color="$YELLOW"
+      fi
+    fi
+
+    echo "  ${BOLD}$label${NC}"
+    echo "    Kibana :${kibana_port}  ${kbn_color}${kbn_status}${NC}"
+    echo "    ES     ${es_display}  ${es_color}${es_status}${NC}"
+    echo ""
+  }
+
+  # kibana-main
+  if tmux has-session -t "kibana-main" 2>/dev/null && [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]]; then
+    check_session "kibana-main" "$KIBANA_MAIN_DIR/config/kibana.dev.yml"
+  fi
+
+  # kibana-feat
+  if tmux has-session -t "kibana-feat" 2>/dev/null && [[ -f "$STATE_FILE" ]]; then
+    source "$STATE_FILE"
+    if [[ -f "$FEAT_DIR/config/kibana.dev.yml" ]]; then
+      check_session "kibana-feat ($FEAT_BRANCH)" "$FEAT_DIR/config/kibana.dev.yml"
+    fi
+  fi
+
+  # Hotfix sessions
+  local wt_name session_name
+  for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+    [[ -f "$yml" ]] || continue
+    wt_name=$(echo "$yml" | sed "s|$WORKTREE_BASE/||" | sed 's|/config/kibana.dev.yml||')
+    [[ -n "${FEAT_DIR:-}" && "$WORKTREE_BASE/$wt_name" == "$FEAT_DIR" ]] && continue
+    session_name=$(echo "kibana-$wt_name" | tr '.' '-')
+    tmux has-session -t "$session_name" 2>/dev/null || continue
+    check_session "$session_name" "$yml"
+  done
+
+  if [[ "$has_sessions" == false ]]; then
+    echo "  ${YELLOW}No active sessions found.${NC}"
+    echo "  Start with: ${GREEN}./dev-start.sh${NC}"
   fi
 
   echo ""
@@ -1326,6 +1431,7 @@ case "${1:-main}" in
   new)         shift; cmd_new "$@" ;;
   attach)      cmd_attach "$2" ;;
   list)        cmd_list ;;
+  status)      cmd_status ;;
   clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;

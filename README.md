@@ -119,6 +119,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh new <branch> --full        # temporary session with full layout (checks + ftr)
 ~/dev-start.sh new <branch> --remote      # temporary session with remote ES
 ~/dev-start.sh new <branch> --full --remote  # full session + remote ES
+~/dev-start.sh status                     # health check — ping ES + Kibana for all sessions
 ~/dev-start.sh restart main               # restart ES + Kibana in kibana-main
 ~/dev-start.sh restart feat               # restart ES + Kibana in kibana-feat
 ~/dev-start.sh restart slo-crash          # restart a hotfix session
