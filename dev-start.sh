@@ -680,7 +680,7 @@ cmd_status() {
     elif [[ "$kbn_http" == "000" ]]; then
       kbn_status="down" ; kbn_color="$RED"
     else
-      kbn_status="starting ($kbn_http)" ; kbn_color="$YELLOW"
+      kbn_status="starting" ; kbn_color="$YELLOW"
     fi
 
     # Check ES
@@ -705,12 +705,12 @@ cmd_status() {
       local es_http
       es_http=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${es_port}/" --max-time 3 2>/dev/null)
       [[ -z "$es_http" ]] && es_http="000"
-      if [[ "$es_http" == "200" ]]; then
+      if [[ "$es_http" == "200" || "$es_http" == "401" ]]; then
         es_status="up" ; es_color="$GREEN"
       elif [[ "$es_http" == "000" ]]; then
         es_status="down" ; es_color="$RED"
       else
-        es_status="starting ($es_http)" ; es_color="$YELLOW"
+        es_status="starting" ; es_color="$YELLOW"
       fi
     fi
 
@@ -1200,12 +1200,40 @@ cmd_restart() {
   echo ""
   echo "${BOLD}Restarting $session${NC}"
 
-  # Kill running processes in server panes (Ctrl-C both panes)
-  echo "${BLUE}→${NC} Stopping ES + Kibana..."
-  tmux send-keys -t "${session}:servers.0" C-c
+  # Kill Kibana first (pane 1), then ES (pane 0)
+  echo "${BLUE}→${NC} Stopping Kibana..."
   tmux send-keys -t "${session}:servers.1" C-c
-  # Give processes a moment to exit cleanly
+  echo "${BLUE}→${NC} Stopping ES..."
+  tmux send-keys -t "${session}:servers.0" C-c
+
+  # Wait for Kibana port to be released (this is the slow one — up to 30s graceful shutdown)
+  echo "${BLUE}→${NC} Waiting for Kibana to exit..."
+  local wait_count=0
+  while lsof -ti :${kibana_port} &>/dev/null && [[ $wait_count -lt 20 ]]; do
+    sleep 2
+    wait_count=$((wait_count + 1))
+  done
+
+  # If Kibana is still hanging, force-kill it
+  if lsof -ti :${kibana_port} &>/dev/null; then
+    echo "${YELLOW}⚠${NC} Kibana didn't exit cleanly, force-killing..."
+    lsof -ti :${kibana_port} | xargs kill -9 2>/dev/null || true
+    sleep 1
+  fi
+
+  # Wait for ES port too (if local)
+  if [[ "$is_remote" != true ]]; then
+    wait_count=0
+    while lsof -ti :${es_port} &>/dev/null && [[ $wait_count -lt 10 ]]; do
+      sleep 2
+      wait_count=$((wait_count + 1))
+    done
+  fi
+
+  # Make sure pane 1 (Kibana) is at a clean shell prompt
+  tmux send-keys -t "${session}:servers.1" C-c
   sleep 1
+  tmux send-keys -t "${session}:servers.1" "" Enter
 
   # Re-launch kbn-start in the left pane
   echo "${BLUE}→${NC} Re-launching kbn-start..."
