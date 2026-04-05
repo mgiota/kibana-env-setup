@@ -39,3 +39,7 @@
 # ── ES defaults ──────────────────────────────────────────
 # Data folder name for kibana-main's ES instance
 # MAIN_DATA_FOLDER="main-cluster"
+
+# ── Remote ES (oblt-cli) ────────────────────────────────
+# oblt-cli cluster name (used by ./dev-start.sh renew)
+# OBLT_CLUSTER_NAME="my-cluster-name"

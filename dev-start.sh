@@ -14,6 +14,8 @@
 #    ./dev-start.sh clean                  → list ES data folders + sizes
 #    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
 #    ./dev-start.sh clean all              → delete ALL ES data
+#    ./dev-start.sh renew --cluster-name X → refresh remote ES credentials from oblt-cli
+#    ./dev-start.sh renew                  → refresh using saved cluster name
 #    ./dev-start.sh setup                  → interactive config wizard (paths, ports, symlinks)
 #    ./dev-start.sh kill <branch>          → kill session + remove worktree
 #    ./dev-start.sh kill-all               → kill all kibana-* sessions
@@ -55,6 +57,7 @@ ES_DATA_BASE="${ES_DATA_BASE:-$HOME/Documents/Development/es_data}"
 STATE_FILE="${STATE_FILE:-$HOME/.kibana-dev-state}"
 KBN_START="${KBN_START:-$HOME/bin/kbn-start.sh}"
 REMOTE_ES_CONFIG="${REMOTE_ES_CONFIG:-$HOME/.kibana-remote-es.yml}"
+OBLT_CLUSTER_NAME="${OBLT_CLUSTER_NAME:-}"
 
 # Script-relative paths (always derived from install location, not configurable)
 TEMPLATE="${0:A:h}/kibana.dev.yml.template"
@@ -372,6 +375,8 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
   echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
   echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
+  echo "  ${GREEN}./dev-start.sh renew --cluster-name <n>${NC} Refresh remote ES credentials from oblt-cli"
+  echo "  ${GREEN}./dev-start.sh renew${NC}                   Refresh using saved cluster name"
   echo "  ${GREEN}./dev-start.sh setup${NC}                   Interactive config wizard (first-time setup)"
   echo "  ${GREEN}./dev-start.sh kill <branch>${NC}           Kill session + remove worktree"
   echo "  ${GREEN}./dev-start.sh kill-all${NC}                Kill ALL kibana-* sessions"
@@ -386,6 +391,7 @@ print_help() {
   echo "    ./dev-start.sh switch feature/slo-filters --remote"
   echo "    ./dev-start.sh new fix/slo-crash"
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
+  echo "    ./dev-start.sh renew --cluster-name edge-oblt --save"
   echo "    ./dev-start.sh kill slo-crash"
   echo ""
 }
@@ -890,6 +896,116 @@ cmd_kill_all() {
   done
 }
 
+cmd_renew() {
+  local cluster_name=""
+  local save_config=false
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-name) cluster_name="$2"; shift 2 ;;
+      --save)         save_config=true; shift ;;
+      *)
+        echo "${RED}Error:${NC} Unknown argument '$1'"
+        echo "  Usage: ${GREEN}./dev-start.sh renew --cluster-name <name> [--save]${NC}"
+        return 1
+        ;;
+    esac
+  done
+
+  # Fall back to saved cluster name from config
+  if [[ -z "$cluster_name" ]]; then
+    cluster_name="$OBLT_CLUSTER_NAME"
+  fi
+
+  if [[ -z "$cluster_name" ]]; then
+    echo "${RED}Error:${NC} No cluster name provided."
+    echo ""
+    echo "  Usage: ${GREEN}./dev-start.sh renew --cluster-name <name>${NC}"
+    echo ""
+    echo "  To save the cluster name for future renewals:"
+    echo "    ${GREEN}./dev-start.sh renew --cluster-name <name> --save${NC}"
+    echo ""
+    echo "  Find your cluster name with:"
+    echo "    ${GREEN}oblt-cli cluster list${NC}"
+    return 1
+  fi
+
+  # Check that oblt-cli is available
+  if ! command -v oblt-cli &>/dev/null; then
+    echo "${RED}Error:${NC} oblt-cli not found in PATH."
+    echo "  Install it first: ${GREEN}https://github.com/elastic/observability-test-environments${NC}"
+    return 1
+  fi
+
+  echo "${BLUE}→${NC} Fetching kibana config from cluster '${BOLD}$cluster_name${NC}'..."
+
+  # Fetch fresh kibana config from oblt-cli
+  if ! oblt-cli cluster secrets kibana-config \
+    --cluster-name "$cluster_name" \
+    --output-file "$REMOTE_ES_CONFIG" 2>/dev/null; then
+    echo "${RED}Error:${NC} Failed to fetch kibana config for cluster '$cluster_name'."
+    echo ""
+    echo "  Check the cluster name is correct:"
+    echo "    ${GREEN}oblt-cli cluster list${NC}"
+    echo ""
+    echo "  Or check your Google Cloud auth:"
+    echo "    ${GREEN}gcloud auth login${NC}"
+    return 1
+  fi
+
+  echo "${GREEN}✓${NC} Remote ES config updated: $REMOTE_ES_CONFIG"
+
+  # Save cluster name to config if requested
+  if [[ "$save_config" == true ]]; then
+    if [[ -f "$KIBANA_DEV_CONF" ]]; then
+      # Update existing config file (portable sed: write to tmp then move)
+      if grep -q "^OBLT_CLUSTER_NAME=" "$KIBANA_DEV_CONF" 2>/dev/null; then
+        sed "s|^OBLT_CLUSTER_NAME=.*|OBLT_CLUSTER_NAME=\"$cluster_name\"|" "$KIBANA_DEV_CONF" > "$KIBANA_DEV_CONF.tmp" && mv "$KIBANA_DEV_CONF.tmp" "$KIBANA_DEV_CONF"
+      elif grep -q "^# *OBLT_CLUSTER_NAME=" "$KIBANA_DEV_CONF" 2>/dev/null; then
+        sed "s|^# *OBLT_CLUSTER_NAME=.*|OBLT_CLUSTER_NAME=\"$cluster_name\"|" "$KIBANA_DEV_CONF" > "$KIBANA_DEV_CONF.tmp" && mv "$KIBANA_DEV_CONF.tmp" "$KIBANA_DEV_CONF"
+      else
+        echo "" >> "$KIBANA_DEV_CONF"
+        echo "# Remote ES (oblt-cli)" >> "$KIBANA_DEV_CONF"
+        echo "OBLT_CLUSTER_NAME=\"$cluster_name\"" >> "$KIBANA_DEV_CONF"
+      fi
+    else
+      # Create minimal config with just the cluster name
+      echo "# ~/.kibana-dev.conf — generated by dev-start.sh renew" > "$KIBANA_DEV_CONF"
+      echo "OBLT_CLUSTER_NAME=\"$cluster_name\"" >> "$KIBANA_DEV_CONF"
+    fi
+    echo "${GREEN}✓${NC} Saved cluster name to $KIBANA_DEV_CONF"
+    echo "  Next time you can just run: ${GREEN}./dev-start.sh renew${NC}"
+  fi
+
+  # Check for active --remote sessions and offer to regenerate
+  local remote_sessions=()
+  for session in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^kibana-"); do
+    local session_dir
+    session_dir=$(tmux show-environment -t "$session" KIBANA_DIR 2>/dev/null | sed 's/.*=//')
+    if [[ -n "$session_dir" && -f "$session_dir/config/kibana.dev.yml" ]]; then
+      if grep -q "Remote ES" "$session_dir/config/kibana.dev.yml" 2>/dev/null; then
+        remote_sessions+=("$session")
+      fi
+    fi
+  done
+
+  if [[ ${#remote_sessions[@]} -gt 0 ]]; then
+    echo ""
+    echo "${YELLOW}Active remote sessions detected:${NC}"
+    for session in "${remote_sessions[@]}"; do
+      echo "  ${BLUE}↳${NC} $session"
+    done
+    echo ""
+    echo "  Restart Kibana in those sessions to pick up the new credentials."
+    echo "  (The config will be regenerated on next ${GREEN}switch --remote${NC} or ${GREEN}new --remote${NC})"
+  fi
+
+  echo ""
+  echo "${GREEN}Done!${NC} Use ${GREEN}--remote${NC} to connect:"
+  echo "  ${GREEN}./dev-start.sh switch <branch> --remote${NC}"
+}
+
 cmd_clean() {
   local target="${1:-}"
 
@@ -1041,7 +1157,7 @@ cmd_main() {
 
 # ── FIRST-RUN DETECTION ───────────────────────────────────
 # If no config file and not running setup/help, nudge the user
-if [[ ! -f "$KIBANA_DEV_CONF" && "${1:-main}" != "setup" && "${1:-main}" != "help" && "${1:-}" != "--help" ]]; then
+if [[ ! -f "$KIBANA_DEV_CONF" && "${1:-main}" != "setup" && "${1:-main}" != "renew" && "${1:-main}" != "help" && "${1:-}" != "--help" ]]; then
   echo ""
   echo "${YELLOW}⚠${NC}  No config file found. Run the setup wizard to configure paths and ports:"
   echo "     ${GREEN}./dev-start.sh setup${NC}"
@@ -1054,6 +1170,7 @@ fi
 case "${1:-main}" in
   main)        cmd_main ;;
   setup)       cmd_setup ;;
+  renew)       shift; cmd_renew "$@" ;;
   switch)      shift; cmd_switch "$@" ;;
   new)         shift; cmd_new "$@" ;;
   attach)      cmd_attach "$2" ;;

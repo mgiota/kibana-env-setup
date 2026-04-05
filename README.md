@@ -123,6 +123,8 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh clean main                 # delete ES data for kibana-main
 ~/dev-start.sh clean feat                 # delete ES data for current feat branch
 ~/dev-start.sh clean all                  # delete ALL ES data
+~/dev-start.sh renew --cluster-name <n>   # refresh remote ES creds from oblt-cli
+~/dev-start.sh renew                      # refresh using saved cluster name
 ~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
@@ -231,21 +233,19 @@ Use the `--remote` flag to connect to a remote ES cluster instead of starting a 
 ~/dev-start.sh new <branch> --remote
 ```
 
-### One-time setup
+### Setup & renewal
 
-1. Copy the example file:
+The `renew` command pulls fresh credentials from oblt-cli and writes them to `~/.kibana-remote-es.yml` automatically:
+
 ```bash
-cp ~/Documents/Development/AI_projects/kibana-env-setup/kibana-remote-es.yml.example ~/.kibana-remote-es.yml
+~/dev-start.sh renew --cluster-name edge-oblt        # fetch + write config
+~/dev-start.sh renew --cluster-name edge-oblt --save  # also save the name for next time
+~/dev-start.sh renew                                  # use saved cluster name
 ```
 
-2. Paste your oblt-cli config into the file as-is — no editing needed:
-```bash
-vim ~/.kibana-remote-es.yml
-```
+Find your cluster name with `oblt-cli cluster list`. When a cluster expires and a new one is created with a different name, just run `renew` with the new name (and `--save` to remember it).
 
-The `server:` block (host, port, restrictInternalApis) is automatically stripped and replaced with the correct port. Everything else is kept: ES connection, monitoring indices, APM sources, encryption keys, uptime config, uiSettings, etc.
-
-Get the config from oblt-cli with `oblt-cli cluster credentials` or `oblt-cli cluster info`.
+**Manual alternative:** Copy `kibana-remote-es.yml.example` to `~/.kibana-remote-es.yml` and paste your oblt-cli output there. The `server:` block is automatically stripped and replaced with the correct port. Everything else is kept: ES connection, monitoring indices, APM sources, encryption keys, uptime config, uiSettings, etc.
 
 ### How it works
 
@@ -324,6 +324,7 @@ The tests use a lightweight bash framework (`tests/test-helpers.sh`) — no exte
 | `test-arg-parsing` | `kbn-start.sh` flag parsing, `switch`/`new` flag parsing, port reservation logic |
 | `test-clean` | ES data listing, deletion by name/alias, `clean all`, edge cases |
 | `test-config-loading` | `~/.kibana-dev.conf` loading, defaults, full/partial overrides, empty config |
+| `test-renew` | `renew` command: argument parsing, credential fetch (mocked oblt-cli), config saving, error handling |
 
 ---
 
