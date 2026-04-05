@@ -231,7 +231,8 @@ build_kibana_session() {
   # 2: scripts
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
-  tmux send-keys -t "${session}:scripts.0"  "cd $dir" Enter
+  # left pane — synthetics private location (with session-specific ports)
+  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics ${kibana_port} ${es_port}"
   # right pane — SLO data ingestion (data_forge with session-specific ports)
   tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
   tmux select-pane -t "${session}:scripts.0"
@@ -277,7 +278,8 @@ build_lightweight_session() {
   # 2: scripts
   tmux new-window -t "$session" -n "scripts" -c "$dir"
   tmux split-window -h -c "$dir" -t "${session}:scripts"
-  tmux send-keys -t "${session}:scripts.0"  "cd $dir" Enter
+  # left pane — synthetics private location (with session-specific ports)
+  tmux send-keys -t "${session}:scripts.0" "$RUN_DATA synthetics ${kibana_port} ${es_port}"
   # right pane — SLO data ingestion (data_forge with session-specific ports)
   tmux send-keys -t "${session}:scripts.1" "$RUN_DATA slo ${kibana_port} ${es_port}"
   tmux select-pane -t "${session}:scripts.0"
