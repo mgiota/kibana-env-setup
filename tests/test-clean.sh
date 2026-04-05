@@ -38,20 +38,17 @@ it "shows usage when no data directory exists"
   output=$(cmd_clean 2>&1)
   assert_contains "$output" "no ES data directory found"
 
-it "lists existing data folders"
+it "lists existing data folders with usage instructions"
   mkdir -p "$ES_DATA_BASE/main-cluster" "$ES_DATA_BASE/slo-filters"
   echo "test" > "$ES_DATA_BASE/main-cluster/data.bin"
   echo "test" > "$ES_DATA_BASE/slo-filters/data.bin"
   output=$(cmd_clean 2>&1)
-  assert_contains "$output" "main-cluster"
-
-it "lists multiple folders"
-  output=$(cmd_clean 2>&1)
-  assert_contains "$output" "slo-filters"
-
-it "shows usage instructions"
-  output=$(cmd_clean 2>&1)
-  assert_contains "$output" "Usage:"
+  # Verify both folders appear and usage is shown
+  if [[ "$output" == *"main-cluster"* && "$output" == *"slo-filters"* && "$output" == *"Usage:"* ]]; then
+    pass
+  else
+    fail "expected listing to contain both folders and usage instructions"
+  fi
 
 
 # ══════════════════════════════════════════════════════════

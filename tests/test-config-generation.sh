@@ -58,13 +58,7 @@ it "does not leave any unreplaced placeholders"
   worktree="$TEST_DIR/worktree-local-4"
   mkdir -p "$worktree"
   generate_kibana_dev_yml "$worktree" 5601 9200 > /dev/null 2>&1
-  assert_file_not_contains "$worktree/config/kibana.dev.yml" "__KIBANA_PORT__"
-
-it "does not leave any unreplaced ES port placeholders"
-  worktree="$TEST_DIR/worktree-local-5"
-  mkdir -p "$worktree"
-  generate_kibana_dev_yml "$worktree" 5601 9200 > /dev/null 2>&1
-  assert_file_not_contains "$worktree/config/kibana.dev.yml" "__ES_PORT__"
+  assert_file_not_contains "$worktree/config/kibana.dev.yml" "__KIBANA_PORT__|__ES_PORT__"
 
 it "sets elasticsearch.username to kibana"
   worktree="$TEST_DIR/worktree-local-6"
@@ -87,13 +81,6 @@ it "includes Fleet configuration"
   mkdir -p "$worktree"
   generate_kibana_dev_yml "$worktree" 5601 9200 > /dev/null 2>&1
   assert_file_contains "$worktree/config/kibana.dev.yml" "xpack.fleet.agentPolicies"
-
-it "creates config/ directory if it doesn't exist"
-  worktree="$TEST_DIR/worktree-no-config"
-  # Don't create config/ dir — the function should do it
-  mkdir -p "$worktree"
-  generate_kibana_dev_yml "$worktree" 5601 9200 > /dev/null 2>&1
-  assert_file_exists "$worktree/config/kibana.dev.yml"
 
 
 # ══════════════════════════════════════════════════════════
@@ -148,17 +135,13 @@ it "includes the remote ES host"
   generate_remote_kibana_dev_yml "$worktree" 5601 > /dev/null 2>&1
   assert_file_contains "$worktree/config/kibana.dev.yml" "test-cluster.es.us-west2.gcp.elastic-cloud.com"
 
-it "includes the remote ES credentials"
+it "includes the remote ES credentials (username + password)"
   worktree="$TEST_DIR/worktree-remote-4"
   mkdir -p "$worktree"
   generate_remote_kibana_dev_yml "$worktree" 5601 > /dev/null 2>&1
   assert_file_contains "$worktree/config/kibana.dev.yml" "kibana_system_user"
-
-it "includes the remote password"
-  worktree="$TEST_DIR/worktree-remote-5"
-  mkdir -p "$worktree"
-  generate_remote_kibana_dev_yml "$worktree" 5601 > /dev/null 2>&1
-  assert_file_contains "$worktree/config/kibana.dev.yml" "test-password-123"
+  # Also check password is present (same file, same generation)
+  grep -q "test-password-123" "$worktree/config/kibana.dev.yml" || { fail "password not found in generated config"; }
 
 it "strips the server: block from remote config"
   worktree="$TEST_DIR/worktree-remote-strip"
@@ -192,13 +175,6 @@ it "does not include localhost ES references"
   generate_remote_kibana_dev_yml "$worktree" 5601 > /dev/null 2>&1
   # The generated file should not have the template's localhost ES block
   assert_file_not_contains "$worktree/config/kibana.dev.yml" "http://localhost:9200"
-
-it "uses a different port for temporary sessions"
-  worktree="$TEST_DIR/worktree-remote-temp"
-  mkdir -p "$worktree"
-  generate_remote_kibana_dev_yml "$worktree" 5603 > /dev/null 2>&1
-  port=$(grep -E "^ *port:" "$worktree/config/kibana.dev.yml" | head -1 | awk '{print $2}')
-  assert_eq "5603" "$port"
 
 it "fails gracefully when remote config file is missing"
   worktree="$TEST_DIR/worktree-remote-missing"

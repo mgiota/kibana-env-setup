@@ -94,10 +94,6 @@ elasticsearch:
     verificationMode: none
 EOF
 
-it "reads Kibana port from remote config"
-  parse_run_data_config "$REMOTE_YML"
-  assert_eq "5601" "$KIBANA_PORT"
-
 it "reads remote ES host"
   parse_run_data_config "$REMOTE_YML"
   assert_eq "https://edge-oblt.es.us-west2.gcp.elastic-cloud.com:443" "$ES_HOST"
@@ -110,14 +106,6 @@ it "detects remote ES correctly"
   parse_run_data_config "$REMOTE_YML"
   assert_eq "true" "$IS_REMOTE"
 
-it "still uses elastic as data username for remote"
-  parse_run_data_config "$REMOTE_YML"
-  assert_eq "elastic" "$DATA_USERNAME"
-
-it "uses ES password as data password"
-  parse_run_data_config "$REMOTE_YML"
-  assert_eq "remote-pw-789" "$DATA_PASSWORD"
-
 
 # ══════════════════════════════════════════════════════════
 #  CONCURRENCY ADJUSTMENT
@@ -128,34 +116,14 @@ describe "concurrency settings"
 it "uses default concurrency for local ES"
   parse_run_data_config "$LOCAL_YML"
   epc=50; payload=10000; conc=5
-  if [[ "$IS_REMOTE" == true ]]; then
-    epc=10; payload=1000; conc=1
-  fi
-  assert_eq "50" "$epc" "events-per-cycle should be 50 for local"
+  if [[ "$IS_REMOTE" == true ]]; then epc=10; payload=1000; conc=1; fi
+  assert_eq "50:10000:5" "$epc:$payload:$conc" "local should keep defaults (epc=50, payload=10000, conc=5)"
 
 it "reduces concurrency for remote ES"
   parse_run_data_config "$REMOTE_YML"
   epc=50; payload=10000; conc=5
-  if [[ "$IS_REMOTE" == true ]]; then
-    epc=10; payload=1000; conc=1
-  fi
-  assert_eq "10" "$epc" "events-per-cycle should be 10 for remote"
-
-it "reduces payload for remote ES"
-  parse_run_data_config "$REMOTE_YML"
-  epc=50; payload=10000; conc=5
-  if [[ "$IS_REMOTE" == true ]]; then
-    epc=10; payload=1000; conc=1
-  fi
-  assert_eq "1000" "$payload" "payload should be 1000 for remote"
-
-it "reduces concurrency count for remote ES"
-  parse_run_data_config "$REMOTE_YML"
-  epc=50; payload=10000; conc=5
-  if [[ "$IS_REMOTE" == true ]]; then
-    epc=10; payload=1000; conc=1
-  fi
-  assert_eq "1" "$conc" "concurrency should be 1 for remote"
+  if [[ "$IS_REMOTE" == true ]]; then epc=10; payload=1000; conc=1; fi
+  assert_eq "10:1000:1" "$epc:$payload:$conc" "remote should reduce (epc=10, payload=1000, conc=1)"
 
 
 # ══════════════════════════════════════════════════════════

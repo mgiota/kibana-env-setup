@@ -100,10 +100,6 @@ it "accepts data folder with all flags"
   parse_kbn_start_args "slo-crash" --kibana-port 5603 --es-port 9202 --host kibana-feat.local
   assert_eq "slo-crash" "$ES_DATA_FOLDER"
 
-it "preserves all ports when combined"
-  parse_kbn_start_args "feat" --kibana-port 5603 --es-port 9202
-  assert_eq "5603:9202" "$KIBANA_PORT:$ES_PORT"
-
 it "rejects unknown flags"
   output=$(parse_kbn_start_args --invalid 2>&1) || true
   assert_contains "$output" "Unknown argument"

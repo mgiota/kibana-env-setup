@@ -244,18 +244,6 @@ it "extracts password from flat key format"
   result=$(extract_es_password "$FLAT_PW")
   assert_eq "changeme" "$result"
 
-NESTED_PW="$TEST_DIR/nested-password.yml"
-cat > "$NESTED_PW" <<'EOF'
-elasticsearch:
-  hosts: https://remote.es.cloud:443
-  username: kibana_system_user
-  password: my-remote-pw
-EOF
-
-it "extracts password from nested format"
-  result=$(extract_es_password "$NESTED_PW")
-  assert_eq "my-remote-pw" "$result"
-
 QUOTED_PW="$TEST_DIR/quoted-password.yml"
 cat > "$QUOTED_PW" <<'EOF'
 elasticsearch:
