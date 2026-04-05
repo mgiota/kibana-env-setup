@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ES_DATA_PATH="$HOME/Documents/Development/kibana/es_data/$ES_DATA_FOLDER"
+ES_DATA_PATH="$HOME/Documents/Development/es_data/$ES_DATA_FOLDER"
 LOGFILE="/tmp/es-${ES_DATA_FOLDER}.log"
 ES_TRANSPORT_PORT=$((ES_PORT + 100))
 # ── END ARGUMENT PARSING ──────────────────────────────────

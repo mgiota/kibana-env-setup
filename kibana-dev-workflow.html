@@ -1245,6 +1245,8 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill &lt;branch&gt;</span><span class="cmd-desc">kill session + remove worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill-all</span><span class="cmd-desc">kill all kibana-* sessions</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh list</span><span class="cmd-desc">list sessions, ports, worktrees + mismatch warnings</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh clean</span><span class="cmd-desc">list ES data folders + sizes</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh clean main|feat|all</span><span class="cmd-desc">delete ES data to start fresh</span></div>
     </div>
 
     <div class="cmd-group">
@@ -1279,6 +1281,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">.cursor/mcp.json</span><span class="cmd-desc">KIBANA_URL for playwright-mcp, scoped per worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/.kibana-dev-state</span><span class="cmd-desc">tracks current feat branch + path</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/.kibana-remote-es.yml</span><span class="cmd-desc">remote ES credentials for --remote flag (oblt-cli / cloud) — user-managed, outside git</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/Documents/Development/es_data/</span><span class="cmd-desc">ES data stored outside Kibana repo — one folder per session, wipe with <code>clean</code></span></div>
     </div>
 
   </div>

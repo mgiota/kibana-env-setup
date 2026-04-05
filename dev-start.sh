@@ -11,6 +11,9 @@
 #    ./dev-start.sh new <branch> --remote    → create session with remote ES
 #    ./dev-start.sh attach <branch>        → attach to existing session
 #    ./dev-start.sh list                   → list sessions, worktrees & ports
+#    ./dev-start.sh clean                  → list ES data folders + sizes
+#    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
+#    ./dev-start.sh clean all              → delete ALL ES data
 #    ./dev-start.sh kill <branch>          → kill session + remove worktree
 #    ./dev-start.sh kill-all               → kill all kibana-* sessions
 #
@@ -42,6 +45,7 @@
 # ── CONFIG ────────────────────────────────────────────────
 KIBANA_MAIN_DIR="$HOME/Documents/Development/kibana"
 WORKTREE_BASE="$HOME/Documents/Development/worktrees"
+ES_DATA_BASE="$HOME/Documents/Development/es_data"
 STATE_FILE="$HOME/.kibana-dev-state"
 KBN_START="$HOME/bin/kbn-start.sh"
 TEMPLATE="${0:A:h}/kibana.dev.yml.template"
@@ -356,6 +360,9 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh new <branch> --remote${NC}   Create session with remote ES"
   echo "  ${GREEN}./dev-start.sh attach <branch>${NC}         Attach to existing session"
   echo "  ${GREEN}./dev-start.sh list${NC}                    List sessions, worktrees & ports"
+  echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
+  echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
+  echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
   echo "  ${GREEN}./dev-start.sh kill <branch>${NC}           Kill session + remove worktree"
   echo "  ${GREEN}./dev-start.sh kill-all${NC}                Kill ALL kibana-* sessions"
   echo ""
@@ -738,6 +745,82 @@ cmd_kill_all() {
   done
 }
 
+cmd_clean() {
+  local target="${1:-}"
+
+  if [[ -z "$target" ]]; then
+    echo ""
+    echo "${BOLD}ES data folders in $ES_DATA_BASE:${NC}"
+    if [[ -d "$ES_DATA_BASE" ]]; then
+      local total_size
+      total_size=$(du -sh "$ES_DATA_BASE" 2>/dev/null | awk '{print $1}')
+      for folder in "$ES_DATA_BASE"/*/; do
+        [[ -d "$folder" ]] || continue
+        local name size
+        name=$(basename "$folder")
+        size=$(du -sh "$folder" 2>/dev/null | awk '{print $1}')
+        echo "  ${BLUE}↳${NC} $name  ($size)"
+      done
+      echo ""
+      echo "  Total: $total_size"
+    else
+      echo "  ${YELLOW}(no ES data directory found)${NC}"
+    fi
+    echo ""
+    echo "Usage:"
+    echo "  ${GREEN}./dev-start.sh clean main${NC}     → delete main-cluster data"
+    echo "  ${GREEN}./dev-start.sh clean feat${NC}     → delete feat worktree data"
+    echo "  ${GREEN}./dev-start.sh clean <name>${NC}   → delete specific data folder"
+    echo "  ${GREEN}./dev-start.sh clean all${NC}      → delete ALL ES data"
+    echo ""
+    return
+  fi
+
+  local folder_name
+  case "$target" in
+    main)
+      folder_name="$MAIN_DATA_FOLDER"
+      ;;
+    feat)
+      if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+        folder_name=$(echo "$FEAT_BRANCH" | sed 's|.*/||')
+      else
+        echo "${RED}Error:${NC} No feat state found. Provide the folder name directly."
+        echo "  Run ${GREEN}./dev-start.sh clean${NC} to see available folders."
+        return 1
+      fi
+      ;;
+    all)
+      if [[ -d "$ES_DATA_BASE" ]]; then
+        local total_size
+        total_size=$(du -sh "$ES_DATA_BASE" 2>/dev/null | awk '{print $1}')
+        echo "${BLUE}→${NC} Removing ALL ES data ($total_size)..."
+        rm -rf "$ES_DATA_BASE"
+        echo "${GREEN}✓${NC} All ES data deleted. Clusters will start fresh."
+      else
+        echo "${YELLOW}⚠${NC} No ES data directory found at $ES_DATA_BASE"
+      fi
+      return
+      ;;
+    *)
+      folder_name="$target"
+      ;;
+  esac
+
+  local data_dir="$ES_DATA_BASE/$folder_name"
+  if [[ -d "$data_dir" ]]; then
+    local size
+    size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+    echo "${BLUE}→${NC} Removing ES data for '$folder_name' ($size)..."
+    rm -rf "$data_dir"
+    echo "${GREEN}✓${NC} Deleted $data_dir — ES will start with a fresh cluster."
+  else
+    echo "${YELLOW}⚠${NC} No data folder found at $data_dir"
+    echo "  Run ${GREEN}./dev-start.sh clean${NC} to see available folders."
+  fi
+}
+
 cmd_main() {
   if [[ ! -f "$KBN_START" ]]; then
     echo "${RED}Error:${NC} kbn-start.sh not found at $KBN_START"
@@ -818,6 +901,7 @@ case "${1:-main}" in
   new)         shift; cmd_new "$@" ;;
   attach)      cmd_attach "$2" ;;
   list)        cmd_list ;;
+  clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;
   help|--help) print_help ;;

@@ -128,6 +128,10 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh new <branch> --full        # temporary session with full layout (checks + ftr)
 ~/dev-start.sh new <branch> --remote      # temporary session with remote ES
 ~/dev-start.sh new <branch> --full --remote  # full session + remote ES
+~/dev-start.sh clean                      # list ES data folders + sizes
+~/dev-start.sh clean main                 # delete ES data for kibana-main
+~/dev-start.sh clean feat                 # delete ES data for current feat branch
+~/dev-start.sh clean all                  # delete ALL ES data
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
 ~/dev-start.sh list                       # show sessions, worktrees, port assignments + warnings
@@ -287,6 +291,22 @@ run-checks.sh lint       # eslint on changed .ts/.tsx/.js files
 run-checks.sh typecheck  # tsc per changed plugin
 run-checks.sh jest       # jest per changed plugin
 ```
+
+---
+
+## Starting fresh (clean ES data)
+
+ES data is stored outside the Kibana repo at `~/Documents/Development/es_data/` — one subfolder per session (e.g. `main-cluster`, `slo-filters`). This avoids polluting git status.
+
+To wipe a cluster and start fresh:
+```bash
+~/dev-start.sh clean              # see what's there + sizes
+~/dev-start.sh clean main         # wipe kibana-main data
+~/dev-start.sh clean feat         # wipe current feat branch data
+~/dev-start.sh clean all          # wipe everything
+```
+
+Next time ES starts, it creates a fresh empty cluster automatically.
 
 ---
 
