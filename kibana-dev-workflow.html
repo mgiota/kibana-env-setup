@@ -800,7 +800,7 @@
       <div class="session-windows">
         <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
         <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
-        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: run-data synthetics · right: run-data slo</span></div>
         <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
         <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">vim, /etc/hosts, configs</span></div>
         <div class="win-row"><span class="win-num">5</span><span class="win-name">checks</span><span class="win-panes">eslint · type check · jest</span></div>
@@ -817,7 +817,7 @@
       <div class="session-windows">
         <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
         <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
-        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: run-data synthetics · right: run-data slo</span></div>
         <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
         <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">vim, /etc/hosts, configs</span></div>
         <div class="win-row"><span class="win-num">5</span><span class="win-name">checks</span><span class="win-panes">eslint · type check · jest</span></div>
@@ -834,7 +834,7 @@
       <div class="session-windows">
         <div class="win-row"><span class="win-num">0</span><span class="win-name">servers</span><span class="win-panes">left: ES · right: Kibana</span></div>
         <div class="win-row"><span class="win-num">1</span><span class="win-name">cursor</span><span class="win-panes">left: cursor-agent · right: shell</span></div>
-        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: synthetics · right: inject</span></div>
+        <div class="win-row"><span class="win-num">2</span><span class="win-name">scripts</span><span class="win-panes">left: run-data synthetics · right: run-data slo</span></div>
         <div class="win-row"><span class="win-num">3</span><span class="win-name">git</span><span class="win-panes">single pane</span></div>
         <div class="win-row"><span class="win-num">4</span><span class="win-name">editor</span><span class="win-panes">single pane</span></div>
         <div style="padding:8px 0 2px">
@@ -1050,27 +1050,96 @@
       <div class="as-note">installs deps for this worktree</div>
     </div>
     <div class="autostart-row" style="padding-left:40px">
-      <div class="as-box" style="background:var(--surface2);border-color:var(--border2);color:var(--cyan)">yarn es snapshot --license trial</div>
+      <div class="as-box" style="background:var(--purple-bg);border-color:var(--purple-bd);color:var(--purple)">detect remote ES in kibana.dev.yml</div>
       <div class="as-arrow">→</div>
-      <div class="as-note">starts ES, pipes output to /tmp/es-*.log</div>
+      <div class="as-note">checks for non-localhost ES URL (supports template + oblt-cli YAML formats)</div>
     </div>
-    <div class="autostart-row" style="padding-left:40px">
-      <div class="as-box" style="background:var(--yellow-bg);border-color:var(--yellow-bd);color:var(--yellow)">tail -F log | watch trigger</div>
+    <div class="autostart-row" style="padding-left:60px">
+      <div class="as-box" style="background:var(--surface2);border-color:var(--border2);color:var(--cyan)">LOCAL → yarn es snapshot --license trial</div>
       <div class="as-arrow">→</div>
-      <div class="as-note">watches for ES ready signal in log</div>
+      <div class="as-note">starts ES, pipes to /tmp/es-*.log, tail watches for trigger</div>
+    </div>
+    <div class="autostart-row" style="padding-left:60px">
+      <div class="as-box" style="background:var(--purple-bg);border-color:var(--purple-bd);color:var(--purple)">REMOTE → skip local ES entirely</div>
+      <div class="as-arrow">→</div>
+      <div class="as-note">ES already running in cloud (oblt-cli), Kibana reads host from config</div>
     </div>
     <div class="autostart-row" style="padding-left:40px">
       <div class="as-box" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">nvm use + yarn start (auto-fired)</div>
       <div class="as-arrow">→</div>
-      <div class="as-note">sent to right pane the moment ES is ready</div>
+      <div class="as-note">sent to right pane — immediately for remote ES, after trigger for local ES</div>
     </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════ REMOTE ES & DATA ══════════════════════ -->
+<section>
+  <div class="section-label">05 · Remote ES & Data Ingestion</div>
+  <h2>Working with Remote ES (oblt-cli)</h2>
+
+  <p>When you need to test against a real Elastic Cloud cluster (e.g. via <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">oblt-cli</code>), edit <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">config/kibana.dev.yml</code> in your worktree to point at the remote cluster. <code>kbn-start.sh</code> auto-detects this and skips local ES entirely.</p>
+
+  <div class="two-col" style="margin-top:20px">
+    <div class="card card-green">
+      <div class="card-label">Local ES (default)</div>
+      <pre style="font-size:0.75rem;line-height:1.6;color:var(--text-bright);margin:0">elasticsearch.hosts:
+  - "http://localhost:9200"
+elasticsearch.username: "kibana"
+elasticsearch.password: "changeme"</pre>
+      <p style="margin-top:10px;font-size:0.78rem">kbn-start.sh starts ES locally, watches for trigger, then auto-fires Kibana.</p>
+    </div>
+    <div class="card card-purple">
+      <div class="card-label">Remote ES (oblt-cli / cloud)</div>
+      <pre style="font-size:0.75rem;line-height:1.6;color:var(--text-bright);margin:0">elasticsearch:
+  hosts: https://my-cluster.elastic.co:443
+  username: kibana_system_user
+  password: &lt;from oblt-cli&gt;</pre>
+      <p style="margin-top:10px;font-size:0.78rem">kbn-start.sh detects the remote URL, skips local ES, starts Kibana directly.</p>
+    </div>
+  </div>
+
+  <div class="card card-yellow" style="margin-top:20px">
+    <div class="card-label">How detection works</div>
+    <p style="font-size:0.78rem;margin-bottom:8px">kbn-start.sh greps <code>kibana.dev.yml</code> for <code>http(s)://</code> URLs, skipping any that contain <code>localhost</code> or <code>127.0.0.1</code>. It handles both YAML formats:</p>
+    <p style="font-size:0.78rem"><strong style="color:var(--text-bright)">Template format:</strong> <code>- "http://..."</code> &nbsp;&nbsp;|&nbsp;&nbsp; <strong style="color:var(--text-bright)">oblt-cli format:</strong> <code>hosts: https://...</code></p>
+    <p style="font-size:0.78rem;margin-top:8px"><code>switch</code> preserves an existing <code>kibana.dev.yml</code> — your remote config won't be overwritten. Delete the file and re-run <code>switch</code> to regenerate from template.</p>
+  </div>
+
+  <h3 style="margin-top:32px;margin-bottom:14px">Data Ingestion (run-data.sh)</h3>
+
+  <p>The <strong style="color:var(--text-bright)">scripts</strong> window has two panes pre-populated with ingestion commands. Just press Enter when Kibana is ready — the script waits automatically.</p>
+
+  <div class="two-col" style="margin-top:16px">
+    <div class="card card-blue">
+      <div class="card-label">run-data.sh slo</div>
+      <p style="font-size:0.78rem;margin-bottom:8px">Ingests SLO test data using <code>data_forge.js</code> with the <code>fake_stack</code> dataset. Reads ES host and credentials from <code>kibana.dev.yml</code>.</p>
+      <p style="font-size:0.78rem">For remote ES: auto-reduces concurrency (1 worker, payload 1000) to avoid timeouts. Always uses the <code>elastic</code> superuser for data writes.</p>
+    </div>
+    <div class="card card-blue">
+      <div class="card-label">run-data.sh synthetics</div>
+      <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location using <code>synthetics_private_location.js</code>. Reads credentials from config.</p>
+      <p style="font-size:0.78rem">Both commands poll <code>/api/status</code> and wait for Kibana to be fully ready before running.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:32px;margin-bottom:14px">Branch-Scoped Checks (run-checks.sh)</h3>
+
+  <p>The <strong style="color:var(--text-bright)">checks</strong> window runs lint, typecheck, and jest scoped to files and plugins you've changed on the branch (compared to <code>upstream/main</code> via <code>git merge-base</code>).</p>
+
+  <div class="card card-green" style="margin-top:16px">
+    <div class="card-label">Three panes, three commands</div>
+    <p style="font-size:0.78rem"><strong style="color:var(--text-bright)">Top-left:</strong> <code>run-checks.sh lint</code> — eslint on changed <code>.ts/.tsx/.js</code> files</p>
+    <p style="font-size:0.78rem"><strong style="color:var(--text-bright)">Top-right:</strong> <code>run-checks.sh typecheck</code> — tsc per changed plugin</p>
+    <p style="font-size:0.78rem"><strong style="color:var(--text-bright)">Bottom:</strong> <code>run-checks.sh jest</code> — jest per changed plugin</p>
+    <p style="font-size:0.78rem;margin-top:8px">Commands are pre-populated but not auto-run — press Enter in each pane when ready.</p>
   </div>
 </section>
 
 
 <!-- ══════════════════════ DAILY WORKFLOW ══════════════════════ -->
 <section>
-  <div class="section-label">05 · Daily Workflow</div>
+  <div class="section-label">06 · Daily Workflow</div>
   <h2>How This Looks Day-to-Day</h2>
 
   <div class="flow" style="margin-top:8px">
@@ -1153,7 +1222,7 @@
 
 <!-- ══════════════════════ REFERENCE ══════════════════════ -->
 <section>
-  <div class="section-label">06 · Reference</div>
+  <div class="section-label">07 · Reference</div>
   <h2>Command Reference</h2>
 
   <div class="cmd-grid">
@@ -1167,6 +1236,15 @@
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill &lt;branch&gt;</span><span class="cmd-desc">kill session + remove worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill-all</span><span class="cmd-desc">kill all kibana-* sessions</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh list</span><span class="cmd-desc">list sessions, ports, worktrees + mismatch warnings</span></div>
+    </div>
+
+    <div class="cmd-group">
+      <div class="cmd-group-header" style="color:var(--purple)">helper scripts</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh slo</span><span class="cmd-desc">ingest SLO fake_stack data via data_forge.js — waits for Kibana, reads creds from config</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location — waits for Kibana, reads creds from config</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh jest</span><span class="cmd-desc">jest per changed plugin (scoped to branch)</span></div>
     </div>
 
     <div class="cmd-group">
@@ -1187,17 +1265,17 @@
     </div>
 
     <div class="cmd-group">
-      <div class="cmd-group-header" style="color:var(--purple)">generated files per worktree</div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">config/kibana.dev.yml</span><span class="cmd-desc">copied from ~/Documents/Dev_setup/kibana.dev.yml template, ports substituted</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">.cursor/mcp.json</span><span class="cmd-desc">KIBANA_URL for playwright-mcp, scoped per worktree</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">~/.kibana-dev-state</span><span class="cmd-desc">tracks current feat branch + path</span></div>
+      <div class="cmd-group-header" style="color:var(--cyan)">generated files per worktree</div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">config/kibana.dev.yml</span><span class="cmd-desc">generated from template with correct ports — preserved on switch if already exists (supports remote ES via oblt-cli)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">.cursor/mcp.json</span><span class="cmd-desc">KIBANA_URL for playwright-mcp, scoped per worktree</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/.kibana-dev-state</span><span class="cmd-desc">tracks current feat branch + path</span></div>
     </div>
 
   </div>
 </section>
 
 <section>
-  <div class="section-label">07 · Gotchas</div>
+  <div class="section-label">08 · Gotchas</div>
   <h2>Known Behaviours & Edge Cases</h2>
   <div class="card card-red" style="margin-top:20px">
     <div class="card-label">Things to be aware of</div>
@@ -1207,6 +1285,8 @@
       <li><strong>Sessions lost on Mac reboot</strong> — tmux survives terminal close but not reboots. Run <code>~/dev-start.sh</code> each morning to recreate. Consider tmux-resurrect for auto-restore.</li>
       <li><strong>ES trigger string may be outdated</strong> — <code>kbn-start.sh</code> watches for a specific string in the ES log to know when to fire Kibana. If ES version changes and the string changes, auto-start won't fire. Check <code>/tmp/es-*.log</code> if Kibana never starts.</li>
       <li><strong>Port mismatch after <code>new</code> → <code>switch</code></strong> — if you ran <code>new</code> on a branch and then <code>switch</code> to the same branch, <code>kibana.dev.yml</code> will have the temporary port (5603+) not the feat port (5601). Delete and rerun <code>switch</code>.</li>
+      <li><strong>Remote ES: <code>kibana_system_user</code> can't write data</strong> — the oblt-cli service account doesn't have permissions to write to data indices. <code>run-data.sh</code> automatically uses the <code>elastic</code> superuser (same password) for ingestion. If you get 401 errors with data_forge, check that the <code>elastic</code> user has the same password as configured in your yml.</li>
+      <li><strong>encryptedSavedObjects errors with remote ES</strong> — expected when connecting to a remote cluster. Alerts created by a different Kibana instance were encrypted with a different key. These errors are harmless and don't affect new rules you create locally.</li>
     </ul>
   </div>
 </section>

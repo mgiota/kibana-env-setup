@@ -7,7 +7,7 @@ A tmux + git worktrees setup that eliminates context-switching overhead, runs mu
 ## What it does
 
 - Creates two permanent tmux sessions: `kibana-main` (main branch) and `kibana-feat` (your active feature branch)
-- Auto-runs `yarn kbn bootstrap`, starts ES, and launches Kibana once ES is ready — all from a single command
+- Auto-runs `yarn kbn bootstrap`, starts ES, and launches Kibana once ES is ready — all from a single command. Supports both local ES and remote ES (oblt-cli / Elastic Cloud)
 - Manages git worktrees so each session has its own isolated checkout
 - Assigns ports automatically — `kibana-feat` always gets the default ports (5601/9200) so you never need to remember them
 - Spins up temporary sessions for PR reviews or hotfixes alongside your active work
@@ -80,9 +80,11 @@ mkdir -p ~/bin
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh ~/dev-start.sh
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh ~/bin/kbn-start.sh
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh ~/bin/run-checks
+ln -s ~/Documents/Development/AI_projects/kibana-env-setup/run-data.sh ~/bin/run-data
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh
+chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-data.sh
 ```
 
 **4. Kibana config template**
@@ -92,7 +94,7 @@ chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh
 To customise defaults (credentials, Fleet config, remote ES, etc.), edit `kibana.dev.yml.template` in the repo directly.
 
 > **Note on config regeneration:**
-> - `switch` — always regenerates. You're starting fresh on a new branch.
+> - `switch` — preserves an existing `kibana.dev.yml` (so remote ES config is not overwritten). Delete the file and re-run `switch` to regenerate from the template.
 > - `new` — if `kibana.dev.yml` already exists (e.g. from a previous run), it is left untouched and a warning is shown. Delete it and re-run if you want to regenerate from the template with fresh ports.
 > - `dev-start.sh` (no args), `kibana-main` — only generates if the file doesn't exist. An existing config is always left untouched.
 > - `dev-start.sh` (no args), `kibana-feat` — keeps the existing config if ports are correct. Regenerates automatically if ports are wrong.
@@ -159,9 +161,9 @@ Each session has the same window structure:
 
 | # | Window | Panes |
 |---|---|---|
-| 0 | servers | left: ES + bootstrap · right: Kibana (auto-started) |
+| 0 | servers | left: ES + bootstrap · right: Kibana (auto-started). Detects remote ES and skips local ES. |
 | 1 | cursor | left: cursor-agent · right: shell |
-| 2 | scripts | left: synthetics · right: inject data |
+| 2 | scripts | left: `run-data synthetics` · right: `run-data slo` (pre-populated, press Enter to run) |
 | 3 | git | single pane |
 | 4 | editor | single pane |
 
@@ -221,8 +223,59 @@ Ctrl-a d   # detach — sessions keep running
 
 ---
 
+## Remote ES (oblt-cli / Elastic Cloud)
+
+`kbn-start.sh` auto-detects when `kibana.dev.yml` points to a remote ES cluster and skips starting local ES. To use a remote cluster, edit `config/kibana.dev.yml` in your worktree. Both YAML formats are supported:
+
+**Template format** (local ES):
+```yaml
+elasticsearch.hosts:
+  - "http://localhost:9200"
+elasticsearch.username: "kibana"
+elasticsearch.password: "changeme"
+```
+
+**oblt-cli format** (remote ES):
+```yaml
+elasticsearch:
+  hosts: https://my-cluster.elastic.co:443
+  username: kibana_system_user
+  password: <from oblt-cli>
+```
+
+When remote ES is detected, `kbn-start.sh` starts Kibana directly without running `yarn es snapshot`. The `switch` command preserves an existing `kibana.dev.yml`, so your remote config won't be overwritten.
+
+---
+
+## Data ingestion (run-data.sh)
+
+The scripts window has pre-populated commands for data ingestion. Press Enter when Kibana is ready — the script waits automatically by polling `/api/status`.
+
+```bash
+run-data.sh slo          # ingest SLO fake_stack data via data_forge.js
+run-data.sh synthetics   # create synthetics private location
+```
+
+`run-data.sh` reads ES host and credentials from `config/kibana.dev.yml` at runtime, so it works with both local and remote ES. For remote clusters, it automatically reduces concurrency and payload size to avoid timeouts. Data ingestion always uses the `elastic` superuser (same password as in the config) since service accounts like `kibana_system_user` lack write permissions on data indices.
+
+---
+
+## Branch-scoped checks (run-checks.sh)
+
+The checks window runs lint, type check, and jest scoped to files and plugins changed on your branch (compared to `upstream/main` via `git merge-base`). Each check is in its own pane — press Enter to run.
+
+```bash
+run-checks.sh lint       # eslint on changed .ts/.tsx/.js files
+run-checks.sh typecheck  # tsc per changed plugin
+run-checks.sh jest       # jest per changed plugin
+```
+
+---
+
 ## Known behaviours & gotchas
 
 - **Branch names with dots** (e.g. `9.3`) — tmux can't use dots in session names. The script converts them to hyphens: `kibana-9-3`. The worktree folder keeps the original name.
 - **Sessions survive terminal close** — tmux keeps everything running. Only a machine reboot kills sessions.
 - **`list` only shows active sessions** — dead sessions are filtered out of the port assignments table automatically.
+- **Remote ES: `kibana_system_user` can't write data** — `run-data.sh` uses the `elastic` superuser automatically. If you get 401 errors, verify the `elastic` user has the same password as your config.
+- **encryptedSavedObjects errors with remote ES** — expected. Alerts from a different Kibana instance were encrypted with a different key. Harmless — new rules you create locally work fine.
