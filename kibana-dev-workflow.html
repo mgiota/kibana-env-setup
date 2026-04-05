@@ -1078,7 +1078,14 @@
   <div class="section-label">05 · Remote ES & Data Ingestion</div>
   <h2>Working with Remote ES (oblt-cli)</h2>
 
-  <p>When you need to test against a real Elastic Cloud cluster (e.g. via <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">oblt-cli</code>), edit <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">config/kibana.dev.yml</code> in your worktree to point at the remote cluster. <code>kbn-start.sh</code> auto-detects this and skips local ES entirely.</p>
+  <p>When you need to test against a real Elastic Cloud cluster (e.g. via <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">oblt-cli</code>), use the <code style="color:var(--green);background:var(--surface2);padding:1px 6px;border-radius:4px">--remote</code> flag. It reads credentials from <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">~/.kibana-remote-es.yml</code> and generates the correct config automatically — no manual editing needed.</p>
+
+  <div class="card card-blue" style="margin-top:16px;margin-bottom:20px">
+    <div class="card-label">Usage</div>
+    <p style="font-size:0.78rem"><code>~/dev-start.sh switch &lt;branch&gt; --remote</code> — switch to remote ES</p>
+    <p style="font-size:0.78rem"><code>~/dev-start.sh switch &lt;branch&gt;</code> — switch back to local ES</p>
+    <p style="font-size:0.78rem;margin-top:8px">Credentials are stored once in <code>~/.kibana-remote-es.yml</code> (outside any git repo). Update it when your cluster expires.</p>
+  </div>
 
   <div class="two-col" style="margin-top:20px">
     <div class="card card-green">
@@ -1103,7 +1110,7 @@ elasticsearch.password: "changeme"</pre>
     <div class="card-label">How detection works</div>
     <p style="font-size:0.78rem;margin-bottom:8px">kbn-start.sh greps <code>kibana.dev.yml</code> for <code>http(s)://</code> URLs, skipping any that contain <code>localhost</code> or <code>127.0.0.1</code>. It handles both YAML formats:</p>
     <p style="font-size:0.78rem"><strong style="color:var(--text-bright)">Template format:</strong> <code>- "http://..."</code> &nbsp;&nbsp;|&nbsp;&nbsp; <strong style="color:var(--text-bright)">oblt-cli format:</strong> <code>hosts: https://...</code></p>
-    <p style="font-size:0.78rem;margin-top:8px"><code>switch</code> preserves an existing <code>kibana.dev.yml</code> — your remote config won't be overwritten. Delete the file and re-run <code>switch</code> to regenerate from template.</p>
+    <p style="font-size:0.78rem;margin-top:8px">Use <code>--remote</code> to switch to remote ES or omit it to switch back to local — no manual config editing needed. Without <code>--remote</code>, <code>switch</code> preserves an existing <code>kibana.dev.yml</code>. Delete the file and re-run to regenerate from template.</p>
   </div>
 
   <h3 style="margin-top:32px;margin-bottom:14px">Data Ingestion (run-data.sh)</h3>
@@ -1230,8 +1237,10 @@ elasticsearch.password: "changeme"</pre>
     <div class="cmd-group">
       <div class="cmd-group-header" style="color:var(--green)">dev-start.sh commands</div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh</span><span class="cmd-desc">start / attach all sessions</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh switch &lt;branch&gt;</span><span class="cmd-desc">switch feat to new branch</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh switch &lt;branch&gt;</span><span class="cmd-desc">switch feat to new branch (local ES)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh switch &lt;branch&gt; --remote</span><span class="cmd-desc">switch with remote ES (reads ~/.kibana-remote-es.yml)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt;</span><span class="cmd-desc">spin up a temporary session for any branch (PR review, hotfix, testing)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt; --remote</span><span class="cmd-desc">temporary session with remote ES</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt; --full</span><span class="cmd-desc">create full session</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill &lt;branch&gt;</span><span class="cmd-desc">kill session + remove worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill-all</span><span class="cmd-desc">kill all kibana-* sessions</span></div>
@@ -1269,6 +1278,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">config/kibana.dev.yml</span><span class="cmd-desc">generated from template with correct ports — preserved on switch if already exists (supports remote ES via oblt-cli)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">.cursor/mcp.json</span><span class="cmd-desc">KIBANA_URL for playwright-mcp, scoped per worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/.kibana-dev-state</span><span class="cmd-desc">tracks current feat branch + path</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--cyan)">~/.kibana-remote-es.yml</span><span class="cmd-desc">remote ES credentials for --remote flag (oblt-cli / cloud) — user-managed, outside git</span></div>
     </div>
 
   </div>

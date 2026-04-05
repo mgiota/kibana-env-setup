@@ -1,0 +1,44 @@
+# ============================================================
+#  Remote ES config for kibana-env-setup
+#
+#  Copy this file to ~/.kibana-remote-es.yml and fill in your
+#  oblt-cli or Elastic Cloud cluster details.
+#
+#  Usage:
+#    ~/dev-start.sh switch <branch> --remote
+#    ~/dev-start.sh new <branch> --remote
+#
+#  This file is read by dev-start.sh when --remote is passed.
+#  Paste your full oblt-cli config here as-is — no editing needed.
+#
+#  The server: block (host, port, restrictInternalApis) is
+#  automatically stripped and replaced with the correct port.
+#  Everything else is kept: ES connection, monitoring indices,
+#  APM sources, encryption keys, uptime, uiSettings, etc.
+#
+#  To get credentials from oblt-cli:
+#    oblt-cli cluster credentials
+#    oblt-cli cluster info
+# ============================================================
+
+# ES connection
+elasticsearch:
+  hosts: https://my-cluster.es.us-west2.gcp.elastic-cloud.com:443
+  username: kibana_system_user
+  password: REPLACE_ME
+  ssl:
+    verificationMode: none
+
+# Encryption keys (from oblt-cli)
+# xpack:
+#   encryptedSavedObjects:
+#     encryptionKey: REPLACE_ME
+#   security:
+#     encryptionKey: REPLACE_ME
+
+# Monitoring, APM sources, uptime, uiSettings, etc.
+# Paste additional oblt-cli config sections below.
+
+elasticsearch.ignoreVersionMismatch: true
+server.versioned.versionResolution: oldest
+server.oas.enabled: true

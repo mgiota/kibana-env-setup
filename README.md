@@ -94,8 +94,8 @@ chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-data.sh
 To customise defaults (credentials, Fleet config, remote ES, etc.), edit `kibana.dev.yml.template` in the repo directly.
 
 > **Note on config regeneration:**
-> - `switch` — preserves an existing `kibana.dev.yml` (so remote ES config is not overwritten). Delete the file and re-run `switch` to regenerate from the template.
-> - `new` — if `kibana.dev.yml` already exists (e.g. from a previous run), it is left untouched and a warning is shown. Delete it and re-run if you want to regenerate from the template with fresh ports.
+> - `switch` — always regenerates `kibana.dev.yml`. Without `--remote`, generates local ES config from template. With `--remote`, generates from `~/.kibana-remote-es.yml`. This means you can freely switch between local and remote by re-running `switch` with or without the flag.
+> - `new` — if `kibana.dev.yml` already exists (e.g. from a previous run), it is left untouched and a warning is shown (unless `--remote` is passed, which always regenerates). Delete it and re-run if you want to regenerate from the template with fresh ports.
 > - `dev-start.sh` (no args), `kibana-main` — only generates if the file doesn't exist. An existing config is always left untouched.
 > - `dev-start.sh` (no args), `kibana-feat` — keeps the existing config if ports are correct. Regenerates automatically if ports are wrong.
 
@@ -121,15 +121,18 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ## Commands
 
 ```bash
-~/dev-start.sh                          # start/attach all sessions
-~/dev-start.sh switch <branch>          # replace kibana-feat with a new branch
-~/dev-start.sh new <branch>             # spin up a temporary session (PR review, hotfix)
-~/dev-start.sh new <branch> --full      # temporary session with full layout (checks + ftr)
-~/dev-start.sh kill <branch>            # kill session + remove worktree
-~/dev-start.sh kill-all                 # kill all kibana-* sessions
-~/dev-start.sh list                     # show sessions, worktrees, port assignments + warnings
-~/dev-start.sh attach <branch>          # attach to an existing temporary session
-~/dev-start.sh help                     # usage
+~/dev-start.sh                            # start/attach all sessions
+~/dev-start.sh switch <branch>            # replace kibana-feat with a new branch (local ES)
+~/dev-start.sh switch <branch> --remote   # switch with remote ES (reads ~/.kibana-remote-es.yml)
+~/dev-start.sh new <branch>               # spin up a temporary session (PR review, hotfix)
+~/dev-start.sh new <branch> --full        # temporary session with full layout (checks + ftr)
+~/dev-start.sh new <branch> --remote      # temporary session with remote ES
+~/dev-start.sh new <branch> --full --remote  # full session + remote ES
+~/dev-start.sh kill <branch>              # kill session + remove worktree
+~/dev-start.sh kill-all                   # kill all kibana-* sessions
+~/dev-start.sh list                       # show sessions, worktrees, port assignments + warnings
+~/dev-start.sh attach <branch>            # attach to an existing temporary session
+~/dev-start.sh help                       # usage
 ```
 
 ### `switch` vs `new`
@@ -225,25 +228,38 @@ Ctrl-a d   # detach — sessions keep running
 
 ## Remote ES (oblt-cli / Elastic Cloud)
 
-`kbn-start.sh` auto-detects when `kibana.dev.yml` points to a remote ES cluster and skips starting local ES. To use a remote cluster, edit `config/kibana.dev.yml` in your worktree. Both YAML formats are supported:
+Use the `--remote` flag to connect to a remote ES cluster instead of starting a local one:
 
-**Template format** (local ES):
-```yaml
-elasticsearch.hosts:
-  - "http://localhost:9200"
-elasticsearch.username: "kibana"
-elasticsearch.password: "changeme"
+```bash
+~/dev-start.sh switch <branch> --remote
+~/dev-start.sh new <branch> --remote
 ```
 
-**oblt-cli format** (remote ES):
-```yaml
-elasticsearch:
-  hosts: https://my-cluster.elastic.co:443
-  username: kibana_system_user
-  password: <from oblt-cli>
+### One-time setup
+
+1. Copy the example file:
+```bash
+cp ~/Documents/Development/AI_projects/kibana-env-setup/kibana-remote-es.yml.example ~/.kibana-remote-es.yml
 ```
 
-When remote ES is detected, `kbn-start.sh` starts Kibana directly without running `yarn es snapshot`. The `switch` command preserves an existing `kibana.dev.yml`, so your remote config won't be overwritten.
+2. Paste your oblt-cli config into the file as-is — no editing needed:
+```bash
+vim ~/.kibana-remote-es.yml
+```
+
+The `server:` block (host, port, restrictInternalApis) is automatically stripped and replaced with the correct port. Everything else is kept: ES connection, monitoring indices, APM sources, encryption keys, uptime config, uiSettings, etc.
+
+Get the config from oblt-cli with `oblt-cli cluster credentials` or `oblt-cli cluster info`.
+
+### How it works
+
+When `--remote` is passed, `dev-start.sh` generates `kibana.dev.yml` using the credentials from `~/.kibana-remote-es.yml` instead of the local ES template. `kbn-start.sh` auto-detects the remote URL and skips `yarn es snapshot`, starting Kibana directly.
+
+Without `--remote`, the default local ES setup is used. To switch between local and remote, just re-run `switch` with or without the flag — no manual config editing needed.
+
+Both YAML formats are detected by `kbn-start.sh`:
+- **Template format**: `elasticsearch.hosts:` → `- "http://..."`
+- **oblt-cli format**: `elasticsearch:` → `hosts: https://...`
 
 ---
 
