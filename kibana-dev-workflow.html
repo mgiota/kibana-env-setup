@@ -1250,7 +1250,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh restart main|feat|&lt;branch&gt;</span><span class="cmd-desc">restart ES + Kibana in a running session (after renew, pull, crash, or clean)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh clean</span><span class="cmd-desc">list ES data folders + sizes</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh clean main|feat|all</span><span class="cmd-desc">delete ES data to start fresh</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh renew --cluster-name &lt;n&gt;</span><span class="cmd-desc">refresh remote ES credentials from oblt-cli (--save to remember the name)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh renew</span><span class="cmd-desc">refresh remote ES credentials (auto-detects cluster, or --cluster-name &lt;n&gt;)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh setup</span><span class="cmd-desc">interactive config wizard — paths, ports, symlinks</span></div>
     </div>
 

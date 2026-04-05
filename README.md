@@ -136,8 +136,8 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh clean main                 # delete ES data for kibana-main
 ~/dev-start.sh clean feat                 # delete ES data for current feat branch
 ~/dev-start.sh clean all                  # delete ALL ES data
-~/dev-start.sh renew --cluster-name <n>   # refresh remote ES creds from oblt-cli
-~/dev-start.sh renew                      # refresh using saved cluster name
+~/dev-start.sh renew                      # refresh remote ES creds (auto-detects cluster)
+~/dev-start.sh renew --cluster-name <n>   # refresh with explicit cluster name
 ~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
@@ -251,16 +251,16 @@ Use the `--remote` flag to connect to a remote ES cluster instead of starting a 
 The `renew` command pulls fresh credentials from oblt-cli and writes them to `~/.kibana-remote-es.yml` automatically:
 
 ```bash
-~/dev-start.sh renew --cluster-name edge-oblt        # fetch + write config
+~/dev-start.sh renew                                  # auto-detects cluster from oblt-cli
+~/dev-start.sh renew --cluster-name edge-oblt         # explicit cluster name
 ~/dev-start.sh renew --cluster-name edge-oblt --save  # also save the name for next time
-~/dev-start.sh renew                                  # use saved cluster name
 ```
 
-Find your cluster name with `oblt-cli cluster list`. When a cluster expires and a new one is created with a different name, just run `renew` with the new name (and `--save` to remember it).
+The cluster name is resolved in this order: `--cluster-name` flag → saved name in `~/.kibana-dev.conf` → auto-detected from `oblt-cli cluster list`. When a cluster expires and a new one is created, just run `renew` — it picks up the new name automatically.
 
 `renew` automatically regenerates `kibana.dev.yml` for any active remote sessions. After renewing, just restart to pick up the new credentials:
 ```bash
-~/dev-start.sh renew --cluster-name new-cluster
+~/dev-start.sh renew
 ~/dev-start.sh restart feat
 ```
 

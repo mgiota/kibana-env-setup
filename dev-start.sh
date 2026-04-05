@@ -18,7 +18,7 @@
 #    ./dev-start.sh sync main|feat|<branch>    → regenerate for a specific session
 #    ./dev-start.sh status                     → health check all sessions (ping ES + Kibana)
 #    ./dev-start.sh restart main|feat|<branch> → restart ES + Kibana in a running session
-#    ./dev-start.sh renew --cluster-name X → refresh remote ES credentials from oblt-cli
+#    ./dev-start.sh renew                  → refresh remote ES credentials (auto-detects cluster)
 #    ./dev-start.sh renew                  → refresh using saved cluster name
 #    ./dev-start.sh setup                  → interactive config wizard (paths, ports, symlinks)
 #    ./dev-start.sh kill <branch>          → kill session + remove worktree
@@ -383,7 +383,7 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh sync main|feat|<branch>${NC}  Regenerate for a specific session"
   echo "  ${GREEN}./dev-start.sh status${NC}                    Health check all sessions (ping ES + Kibana)"
   echo "  ${GREEN}./dev-start.sh restart main|feat|<branch>${NC} Restart ES + Kibana in a running session"
-  echo "  ${GREEN}./dev-start.sh renew --cluster-name <n>${NC} Refresh remote ES credentials from oblt-cli"
+  echo "  ${GREEN}./dev-start.sh renew${NC}                      Refresh remote ES credentials (auto-detects cluster)"
   echo "  ${GREEN}./dev-start.sh renew${NC}                   Refresh using saved cluster name"
   echo "  ${GREEN}./dev-start.sh setup${NC}                   Interactive config wizard (first-time setup)"
   echo "  ${GREEN}./dev-start.sh kill <branch>${NC}           Kill session + remove worktree"
@@ -401,7 +401,8 @@ print_help() {
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
   echo "    ./dev-start.sh sync                     # after editing the template"
   echo "    ./dev-start.sh restart feat"
-  echo "    ./dev-start.sh renew --cluster-name edge-oblt --save"
+  echo "    ./dev-start.sh renew                          # auto-detects cluster"
+  echo "    ./dev-start.sh renew --cluster-name edge-oblt   # explicit name"
   echo "    ./dev-start.sh kill slo-crash"
   echo ""
 }
@@ -1278,8 +1279,30 @@ cmd_renew() {
     cluster_name="$OBLT_CLUSTER_NAME"
   fi
 
+  # Auto-detect from oblt-cli cluster list
+  if [[ -z "$cluster_name" ]] && command -v oblt-cli &>/dev/null; then
+    echo "${BLUE}→${NC} No cluster name provided, detecting from oblt-cli..."
+    local detected
+    detected=$(oblt-cli cluster list 2>&1 | sed -n '/CLUSTER NAME/,$ p' | tail -n +2 | sed 's/[^a-zA-Z0-9 _-]/ /g' | awk 'NF && $1 ~ /[a-z]/ {print $1}')
+    local cluster_count
+    cluster_count=$(echo "$detected" | grep -c '[a-z]')
+
+    if [[ "$cluster_count" -eq 1 ]]; then
+      cluster_name=$(echo "$detected" | grep '[a-z]')
+      echo "${GREEN}✓${NC} Found cluster: ${BOLD}$cluster_name${NC}"
+    elif [[ "$cluster_count" -gt 1 ]]; then
+      echo "${YELLOW}⚠${NC} Multiple clusters found:"
+      echo "$detected" | grep '[a-z]' | while read -r c; do
+        echo "    $c"
+      done
+      echo ""
+      echo "  Specify which one: ${GREEN}./dev-start.sh renew --cluster-name <name>${NC}"
+      return 1
+    fi
+  fi
+
   if [[ -z "$cluster_name" ]]; then
-    echo "${RED}Error:${NC} No cluster name provided."
+    echo "${RED}Error:${NC} No cluster name provided and auto-detect found nothing."
     echo ""
     echo "  Usage: ${GREEN}./dev-start.sh renew --cluster-name <name>${NC}"
     echo ""
@@ -1300,6 +1323,12 @@ cmd_renew() {
 
   echo "${BLUE}→${NC} Fetching kibana config from cluster '${BOLD}$cluster_name${NC}'..."
 
+  # Checksum before fetch (to detect if credentials actually changed)
+  local old_checksum=""
+  if [[ -f "$REMOTE_ES_CONFIG" ]]; then
+    old_checksum=$(md5 -q "$REMOTE_ES_CONFIG" 2>/dev/null || md5sum "$REMOTE_ES_CONFIG" 2>/dev/null | awk '{print $1}')
+  fi
+
   # Fetch fresh kibana config from oblt-cli
   if ! oblt-cli cluster secrets kibana-config \
     --cluster-name "$cluster_name" \
@@ -1314,7 +1343,16 @@ cmd_renew() {
     return 1
   fi
 
-  echo "${GREEN}✓${NC} Remote ES config updated: $REMOTE_ES_CONFIG"
+  # Compare checksums to see if credentials actually changed
+  local new_checksum=""
+  new_checksum=$(md5 -q "$REMOTE_ES_CONFIG" 2>/dev/null || md5sum "$REMOTE_ES_CONFIG" 2>/dev/null | awk '{print $1}')
+  local credentials_changed=true
+  if [[ -n "$old_checksum" && "$old_checksum" == "$new_checksum" ]]; then
+    credentials_changed=false
+    echo "${GREEN}✓${NC} Credentials unchanged — no update needed."
+  else
+    echo "${GREEN}✓${NC} Remote ES config updated: $REMOTE_ES_CONFIG"
+  fi
 
   # Save cluster name to config if requested
   if [[ "$save_config" == true ]]; then
@@ -1338,52 +1376,54 @@ cmd_renew() {
     echo "  Next time you can just run: ${GREEN}./dev-start.sh renew${NC}"
   fi
 
-  # Regenerate kibana.dev.yml for any active remote sessions
-  local regenerated=()
+  # Regenerate kibana.dev.yml for active remote sessions (only if credentials changed)
+  if [[ "$credentials_changed" == true ]]; then
+    local regenerated=()
 
-  # Check kibana-main
-  if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
-     grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
-    local main_port
-    main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
-    generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
-    regenerated+=("kibana-main")
-  fi
-
-  # Check kibana-feat
-  if [[ -f "$STATE_FILE" ]]; then
-    source "$STATE_FILE"
-    if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
-       grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
-      local feat_port
-      feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
-      generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
-      regenerated+=("kibana-feat")
+    # Check kibana-main
+    if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
+       grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
+      local main_port
+      main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+      generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
+      regenerated+=("kibana-main")
     fi
-  fi
 
-  # Check hotfix sessions
-  for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
-    [[ -f "$yml" ]] || continue
-    grep -q "Remote ES" "$yml" 2>/dev/null || continue
-    local wt_dir wt_name wt_port
-    wt_dir=$(dirname "$(dirname "$yml")")
-    wt_name=$(basename "$wt_dir")
-    # Skip feat worktree (already handled above)
-    [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
-    wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
-    generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
-    regenerated+=("kibana-$wt_name")
-  done
+    # Check kibana-feat
+    if [[ -f "$STATE_FILE" ]]; then
+      source "$STATE_FILE"
+      if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
+         grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
+        local feat_port
+        feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+        generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
+        regenerated+=("kibana-feat")
+      fi
+    fi
 
-  if [[ ${#regenerated[@]} -gt 0 ]]; then
-    echo ""
-    echo "${GREEN}✓${NC} Regenerated kibana.dev.yml for remote sessions:"
-    for s in "${regenerated[@]}"; do
-      echo "  ${BLUE}↳${NC} $s"
+    # Check hotfix sessions
+    for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+      [[ -f "$yml" ]] || continue
+      grep -q "Remote ES" "$yml" 2>/dev/null || continue
+      local wt_dir wt_name wt_port
+      wt_dir=$(dirname "$(dirname "$yml")")
+      wt_name=$(basename "$wt_dir")
+      # Skip feat worktree (already handled above)
+      [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
+      wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+      generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
+      regenerated+=("kibana-$wt_name")
     done
-    echo ""
-    echo "  Run ${GREEN}./dev-start.sh restart <session>${NC} to pick up the new credentials."
+
+    if [[ ${#regenerated[@]} -gt 0 ]]; then
+      echo ""
+      echo "${GREEN}✓${NC} Regenerated kibana.dev.yml for remote sessions:"
+      for s in "${regenerated[@]}"; do
+        echo "  ${BLUE}↳${NC} $s"
+      done
+      echo ""
+      echo "  Run ${GREEN}./dev-start.sh restart <session>${NC} to pick up the new credentials."
+    fi
   fi
 
   echo ""
