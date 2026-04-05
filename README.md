@@ -258,6 +258,8 @@ run-data.sh synthetics   # create synthetics private location
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml` at runtime, so it works with both local and remote ES. For remote clusters, it automatically reduces concurrency and payload size to avoid timeouts. Data ingestion always uses the `elastic` superuser (same password as in the config) since service accounts like `kibana_system_user` lack write permissions on data indices.
 
+**Synthetics and remote ES:** `run-data.sh synthetics` only runs on local ES. On remote ES (oblt-cli / Elastic Cloud), Elastic managed locations are already available in the Synthetics locations dropdown — no private location setup needed. The script detects this and shows an informational message instead of running.
+
 ---
 
 ## Branch-scoped checks (run-checks.sh)

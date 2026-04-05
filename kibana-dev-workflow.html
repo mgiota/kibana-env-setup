@@ -1118,8 +1118,8 @@ elasticsearch.password: "changeme"</pre>
     </div>
     <div class="card card-blue">
       <div class="card-label">run-data.sh synthetics</div>
-      <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location using <code>synthetics_private_location.js</code>. Reads credentials from config.</p>
-      <p style="font-size:0.78rem">Both commands poll <code>/api/status</code> and wait for Kibana to be fully ready before running.</p>
+      <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location using <code>synthetics_private_location.js</code>. <strong style="color:var(--text-bright)">Only runs on local ES</strong> — private locations are needed because managed locations don't exist locally.</p>
+      <p style="font-size:0.78rem">On remote ES (oblt-cli / cloud), the script skips and shows a message: Elastic managed locations are already available in the dropdown. Both commands poll <code>/api/status</code> and wait for Kibana to be fully ready before running.</p>
     </div>
   </div>
 
@@ -1241,7 +1241,7 @@ elasticsearch.password: "changeme"</pre>
     <div class="cmd-group">
       <div class="cmd-group-header" style="color:var(--purple)">helper scripts</div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh slo</span><span class="cmd-desc">ingest SLO fake_stack data via data_forge.js — waits for Kibana, reads creds from config</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location — waits for Kibana, reads creds from config</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location (local ES only — skipped on remote ES where managed locations exist)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh jest</span><span class="cmd-desc">jest per changed plugin (scoped to branch)</span></div>

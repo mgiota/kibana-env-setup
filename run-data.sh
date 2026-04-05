@@ -110,6 +110,16 @@ case "$1" in
     ;;
 
   synthetics)
+    if [[ "$IS_REMOTE" == true ]]; then
+      echo "ℹ️  Remote ES detected — skipping private location setup."
+      echo ""
+      echo "   Elastic managed locations are already available on cloud clusters."
+      echo "   Open Synthetics in Kibana and use the pre-populated locations dropdown."
+      echo ""
+      echo "   Private locations are only needed for local ES, where managed locations"
+      echo "   don't exist. Switch to local ES and re-run if you need a private location."
+      exit 0
+    fi
     wait_for_kibana
     node x-pack/scripts/synthetics_private_location.js \
       --elasticsearch-host "${ES_HOST}" \
