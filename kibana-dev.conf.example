@@ -1,0 +1,41 @@
+# ============================================================
+#  ~/.kibana-dev.conf — user configuration for kibana-env-setup
+#
+#  Copy this file to ~/.kibana-dev.conf and adjust to match
+#  your machine. Only uncomment the lines you want to change —
+#  everything has a sensible default.
+#
+#  Generate automatically:  ./dev-start.sh setup
+# ============================================================
+
+# ── Paths ────────────────────────────────────────────────
+# Where your Kibana repo is cloned
+# KIBANA_MAIN_DIR="$HOME/Documents/Development/kibana"
+
+# Where git worktrees are created (one per feature branch)
+# WORKTREE_BASE="$HOME/Documents/Development/worktrees"
+
+# Where ES stores its data (outside the repo to avoid git noise)
+# ES_DATA_BASE="$HOME/Documents/Development/es_data"
+
+# ── Ports ────────────────────────────────────────────────
+# kibana-main — permanent session, always running on main branch
+# MAIN_KIBANA_PORT=5602
+# MAIN_ES_PORT=9201
+
+# kibana-feat — permanent session, swapped between feature branches
+# FEAT_KIBANA_PORT=5601
+# FEAT_ES_PORT=9200
+
+# Temporary sessions (new command) start scanning from these ports
+# HOTFIX_KIBANA_PORT_START=5603
+# HOTFIX_ES_PORT_START=9202
+
+# ── Hosts ────────────────────────────────────────────────
+# Custom hostnames (must be in /etc/hosts → 127.0.0.1)
+# MAIN_HOST="kibana-main.local"
+# FEAT_HOST="kibana-feat.local"
+
+# ── ES defaults ──────────────────────────────────────────
+# Data folder name for kibana-main's ES instance
+# MAIN_DATA_FOLDER="main-cluster"

@@ -18,6 +18,11 @@
 # ============================================================
 set -euo pipefail
 
+# ── User config (same file as dev-start.sh) ──────────────
+KIBANA_DEV_CONF="$HOME/.kibana-dev.conf"
+[[ -f "$KIBANA_DEV_CONF" ]] && source "$KIBANA_DEV_CONF"
+
+ES_DATA_BASE="${ES_DATA_BASE:-$HOME/Documents/Development/es_data}"
 TRIGGER_STRING="succ kbn/es setup complete"
 
 # ── DEFAULTS ──────────────────────────────────────────────
@@ -54,7 +59,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ES_DATA_PATH="$HOME/Documents/Development/es_data/$ES_DATA_FOLDER"
+ES_DATA_PATH="$ES_DATA_BASE/$ES_DATA_FOLDER"
 LOGFILE="/tmp/es-${ES_DATA_FOLDER}.log"
 ES_TRANSPORT_PORT=$((ES_PORT + 100))
 # ── END ARGUMENT PARSING ──────────────────────────────────

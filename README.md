@@ -68,26 +68,17 @@ export PATH="$HOME/bin:$PATH"
 git clone <repo-url> ~/Documents/Development/AI_projects/kibana-env-setup
 ```
 
-**2. Update paths in `dev-start.sh`** — open the file and update the config block at the top to match your machine:
+**2. Run the setup wizard** — configures paths, ports, and creates symlinks:
 ```bash
-KIBANA_MAIN_DIR="$HOME/Documents/Development/kibana"   # path to your Kibana checkout
-WORKTREE_BASE="$HOME/Documents/Development/worktrees"  # where worktrees will be created
+cd ~/Documents/Development/AI_projects/kibana-env-setup
+./dev-start.sh setup
 ```
 
-**3. Set up symlinks** so the scripts are available from their expected locations:
-```bash
-mkdir -p ~/bin
-ln -s ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh ~/dev-start.sh
-ln -s ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh ~/bin/kbn-start.sh
-ln -s ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh ~/bin/run-checks
-ln -s ~/Documents/Development/AI_projects/kibana-env-setup/run-data.sh ~/bin/run-data
-chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh
-chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh
-chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-checks.sh
-chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/run-data.sh
-```
+The wizard asks for your Kibana repo path, worktree directory, and ports, then writes `~/.kibana-dev.conf` and sets up all symlinks automatically. Press Enter at each prompt to accept the defaults. To reconfigure later, just run `setup` again.
 
-**4. Kibana config template**
+> **Manual setup:** If you prefer, copy `kibana-dev.conf.example` to `~/.kibana-dev.conf` and edit it, then create the symlinks yourself. See the example file for all available settings.
+
+**3. Kibana config template**
 
 `kibana.dev.yml.template` lives in this repo and is picked up automatically — no copying needed. When a session is created, the script generates a `config/kibana.dev.yml` in each worktree by replacing the `__KIBANA_PORT__` and `__ES_PORT__` placeholders with the correct values.
 
@@ -132,6 +123,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh clean main                 # delete ES data for kibana-main
 ~/dev-start.sh clean feat                 # delete ES data for current feat branch
 ~/dev-start.sh clean all                  # delete ALL ES data
+~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
 ~/dev-start.sh list                       # show sessions, worktrees, port assignments + warnings
@@ -330,6 +322,8 @@ The tests use a lightweight bash framework (`tests/test-helpers.sh`) — no exte
 | `test-es-detection` | Grep pattern matching for both YAML formats (template + oblt-cli), localhost/127.0.0.1 filtering, commented lines, edge cases |
 | `test-run-data` | Credential parsing, remote detection, concurrency reduction, password defaults, synthetics guard |
 | `test-arg-parsing` | `kbn-start.sh` flag parsing, `switch`/`new` flag parsing, port reservation logic |
+| `test-clean` | ES data listing, deletion by name/alias, `clean all`, edge cases |
+| `test-config-loading` | `~/.kibana-dev.conf` loading, defaults, full/partial overrides, empty config |
 
 ---
 

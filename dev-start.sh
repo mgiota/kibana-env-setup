@@ -14,6 +14,7 @@
 #    ./dev-start.sh clean                  → list ES data folders + sizes
 #    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
 #    ./dev-start.sh clean all              → delete ALL ES data
+#    ./dev-start.sh setup                  → interactive config wizard (paths, ports, symlinks)
 #    ./dev-start.sh kill <branch>          → kill session + remove worktree
 #    ./dev-start.sh kill-all               → kill all kibana-* sessions
 #
@@ -43,31 +44,39 @@
 # ============================================================
 
 # ── CONFIG ────────────────────────────────────────────────
-KIBANA_MAIN_DIR="$HOME/Documents/Development/kibana"
-WORKTREE_BASE="$HOME/Documents/Development/worktrees"
-ES_DATA_BASE="$HOME/Documents/Development/es_data"
-STATE_FILE="$HOME/.kibana-dev-state"
-KBN_START="$HOME/bin/kbn-start.sh"
+# User overrides — sourced first so they take precedence
+KIBANA_DEV_CONF="$HOME/.kibana-dev.conf"
+[[ -f "$KIBANA_DEV_CONF" ]] && source "$KIBANA_DEV_CONF"
+
+# Paths (defaults apply only if not set by user config)
+KIBANA_MAIN_DIR="${KIBANA_MAIN_DIR:-$HOME/Documents/Development/kibana}"
+WORKTREE_BASE="${WORKTREE_BASE:-$HOME/Documents/Development/worktrees}"
+ES_DATA_BASE="${ES_DATA_BASE:-$HOME/Documents/Development/es_data}"
+STATE_FILE="${STATE_FILE:-$HOME/.kibana-dev-state}"
+KBN_START="${KBN_START:-$HOME/bin/kbn-start.sh}"
+REMOTE_ES_CONFIG="${REMOTE_ES_CONFIG:-$HOME/.kibana-remote-es.yml}"
+
+# Script-relative paths (always derived from install location, not configurable)
 TEMPLATE="${0:A:h}/kibana.dev.yml.template"
-REMOTE_ES_CONFIG="$HOME/.kibana-remote-es.yml"
 REMOTE_ES_EXAMPLE="${0:A:h}/kibana-remote-es.yml.example"
+CONF_EXAMPLE="${0:A:h}/kibana-dev.conf.example"
 RUN_CHECKS="${0:A:h}/run-checks.sh"
 RUN_DATA="${0:A:h}/run-data.sh"
 
 # kibana-main — permanent, never changes
-MAIN_KIBANA_PORT=5602
-MAIN_ES_PORT=9201
-MAIN_HOST="kibana-main.local"
-MAIN_DATA_FOLDER="main-cluster"
+MAIN_KIBANA_PORT="${MAIN_KIBANA_PORT:-5602}"
+MAIN_ES_PORT="${MAIN_ES_PORT:-9201}"
+MAIN_HOST="${MAIN_HOST:-kibana-main.local}"
+MAIN_DATA_FOLDER="${MAIN_DATA_FOLDER:-main-cluster}"
 
 # kibana-feat — permanent slot, branch changes via `switch`
-FEAT_KIBANA_PORT=5601
-FEAT_ES_PORT=9200
-FEAT_HOST="kibana-feat.local"
+FEAT_KIBANA_PORT="${FEAT_KIBANA_PORT:-5601}"
+FEAT_ES_PORT="${FEAT_ES_PORT:-9200}"
+FEAT_HOST="${FEAT_HOST:-kibana-feat.local}"
 
 # Hotfix sessions scan upward from these ports
-HOTFIX_KIBANA_PORT_START=5603
-HOTFIX_ES_PORT_START=9202
+HOTFIX_KIBANA_PORT_START="${HOTFIX_KIBANA_PORT_START:-5603}"
+HOTFIX_ES_PORT_START="${HOTFIX_ES_PORT_START:-9202}"
 
 # ── END CONFIG ────────────────────────────────────────────
 
@@ -363,12 +372,12 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
   echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
   echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
+  echo "  ${GREEN}./dev-start.sh setup${NC}                   Interactive config wizard (first-time setup)"
   echo "  ${GREEN}./dev-start.sh kill <branch>${NC}           Kill session + remove worktree"
   echo "  ${GREEN}./dev-start.sh kill-all${NC}                Kill ALL kibana-* sessions"
   echo ""
   echo "  ${YELLOW}First time setup:${NC}"
-  echo "    mkdir -p ~/bin"
-  echo "    cp kbn-start.sh ~/bin/kbn-start.sh && chmod +x ~/bin/kbn-start.sh"
+  echo "    ./dev-start.sh setup"
   echo "    ./dev-start.sh switch feature/my-first-feature"
   echo "    ./dev-start.sh"
   echo ""
@@ -378,6 +387,142 @@ print_help() {
   echo "    ./dev-start.sh new fix/slo-crash"
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
   echo "    ./dev-start.sh kill slo-crash"
+  echo ""
+}
+
+cmd_setup() {
+  echo ""
+  echo "${BOLD}kibana-env-setup — configuration wizard${NC}"
+  echo ""
+
+  if [[ -f "$KIBANA_DEV_CONF" ]]; then
+    echo "${YELLOW}⚠${NC}  Config file already exists at $KIBANA_DEV_CONF"
+    echo "   Current values will be shown as defaults. Press Enter to keep them."
+    echo ""
+    source "$KIBANA_DEV_CONF"
+  fi
+
+  # ── Ask for paths ──────────────────────────────────────
+  local default_kibana="${KIBANA_MAIN_DIR}"
+  local default_worktrees="${WORKTREE_BASE}"
+  local default_esdata="${ES_DATA_BASE}"
+
+  printf "  Kibana repo path [${BLUE}${default_kibana}${NC}]: "
+  read -r input_kibana
+  input_kibana="${input_kibana:-$default_kibana}"
+
+  printf "  Worktrees path   [${BLUE}${default_worktrees}${NC}]: "
+  read -r input_worktrees
+  input_worktrees="${input_worktrees:-$default_worktrees}"
+
+  printf "  ES data path     [${BLUE}${default_esdata}${NC}]: "
+  read -r input_esdata
+  input_esdata="${input_esdata:-$default_esdata}"
+
+  # ── Ask for ports ──────────────────────────────────────
+  echo ""
+  echo "  ${BOLD}Ports${NC} (press Enter to keep defaults)"
+
+  printf "  kibana-main  Kibana port [${BLUE}${MAIN_KIBANA_PORT}${NC}]: "
+  read -r input_main_kport
+  input_main_kport="${input_main_kport:-$MAIN_KIBANA_PORT}"
+
+  printf "  kibana-main  ES port     [${BLUE}${MAIN_ES_PORT}${NC}]: "
+  read -r input_main_eport
+  input_main_eport="${input_main_eport:-$MAIN_ES_PORT}"
+
+  printf "  kibana-feat  Kibana port [${BLUE}${FEAT_KIBANA_PORT}${NC}]: "
+  read -r input_feat_kport
+  input_feat_kport="${input_feat_kport:-$FEAT_KIBANA_PORT}"
+
+  printf "  kibana-feat  ES port     [${BLUE}${FEAT_ES_PORT}${NC}]: "
+  read -r input_feat_eport
+  input_feat_eport="${input_feat_eport:-$FEAT_ES_PORT}"
+
+  # ── Validate Kibana repo ───────────────────────────────
+  echo ""
+  if [[ -d "$input_kibana/.git" ]] || [[ -d "$input_kibana/package.json" ]]; then
+    echo "  ${GREEN}✓${NC} Kibana repo found at $input_kibana"
+  else
+    echo "  ${YELLOW}⚠${NC} No git repo found at $input_kibana — make sure to clone Kibana there first."
+  fi
+
+  # ── Write config ───────────────────────────────────────
+  cat > "$KIBANA_DEV_CONF" <<EOF
+# Generated by: dev-start.sh setup
+# Edit this file or re-run setup to change settings.
+
+# Paths
+KIBANA_MAIN_DIR="$input_kibana"
+WORKTREE_BASE="$input_worktrees"
+ES_DATA_BASE="$input_esdata"
+
+# Ports — kibana-main
+MAIN_KIBANA_PORT=$input_main_kport
+MAIN_ES_PORT=$input_main_eport
+
+# Ports — kibana-feat
+FEAT_KIBANA_PORT=$input_feat_kport
+FEAT_ES_PORT=$input_feat_eport
+EOF
+
+  echo ""
+  echo "${GREEN}✓${NC} Config written to $KIBANA_DEV_CONF"
+
+  # ── Create directories if needed ───────────────────────
+  mkdir -p "$input_worktrees" 2>/dev/null && \
+    echo "${GREEN}✓${NC} Worktrees directory ready: $input_worktrees" || true
+  mkdir -p "$input_esdata" 2>/dev/null && \
+    echo "${GREEN}✓${NC} ES data directory ready: $input_esdata" || true
+
+  # ── Set up symlinks ────────────────────────────────────
+  echo ""
+  echo "${BOLD}Symlinks${NC}"
+  local script_dir="${0:A:h}"
+
+  # kbn-start.sh → ~/bin/
+  mkdir -p "$HOME/bin"
+  if [[ -L "$HOME/bin/kbn-start.sh" ]]; then
+    echo "  ${GREEN}✓${NC} ~/bin/kbn-start.sh already linked"
+  elif [[ -f "$script_dir/kbn-start.sh" ]]; then
+    ln -s "$script_dir/kbn-start.sh" "$HOME/bin/kbn-start.sh"
+    chmod +x "$script_dir/kbn-start.sh"
+    echo "  ${GREEN}✓${NC} ~/bin/kbn-start.sh → $script_dir/kbn-start.sh"
+  fi
+
+  # run-checks → ~/bin/
+  if [[ -L "$HOME/bin/run-checks" ]]; then
+    echo "  ${GREEN}✓${NC} ~/bin/run-checks already linked"
+  elif [[ -f "$script_dir/run-checks.sh" ]]; then
+    ln -s "$script_dir/run-checks.sh" "$HOME/bin/run-checks"
+    chmod +x "$script_dir/run-checks.sh"
+    echo "  ${GREEN}✓${NC} ~/bin/run-checks → $script_dir/run-checks.sh"
+  fi
+
+  # run-data → ~/bin/
+  if [[ -L "$HOME/bin/run-data" ]]; then
+    echo "  ${GREEN}✓${NC} ~/bin/run-data already linked"
+  elif [[ -f "$script_dir/run-data.sh" ]]; then
+    ln -s "$script_dir/run-data.sh" "$HOME/bin/run-data"
+    chmod +x "$script_dir/run-data.sh"
+    echo "  ${GREEN}✓${NC} ~/bin/run-data → $script_dir/run-data.sh"
+  fi
+
+  # dev-start.sh → ~/
+  if [[ -L "$HOME/dev-start.sh" ]]; then
+    echo "  ${GREEN}✓${NC} ~/dev-start.sh already linked"
+  elif [[ -f "$script_dir/dev-start.sh" ]]; then
+    ln -s "$script_dir/dev-start.sh" "$HOME/dev-start.sh"
+    chmod +x "$script_dir/dev-start.sh"
+    echo "  ${GREEN}✓${NC} ~/dev-start.sh → $script_dir/dev-start.sh"
+  fi
+
+  echo ""
+  echo "${GREEN}✓ Setup complete!${NC}"
+  echo ""
+  echo "  Next steps:"
+  echo "    ${GREEN}~/dev-start.sh switch feature/your-branch${NC}   ← set your first feature branch"
+  echo "    ${GREEN}~/dev-start.sh${NC}                              ← start all sessions"
   echo ""
 }
 
@@ -894,9 +1039,21 @@ cmd_main() {
 # ── END COMMANDS ──────────────────────────────────────────
 
 
+# ── FIRST-RUN DETECTION ───────────────────────────────────
+# If no config file and not running setup/help, nudge the user
+if [[ ! -f "$KIBANA_DEV_CONF" && "${1:-main}" != "setup" && "${1:-main}" != "help" && "${1:-}" != "--help" ]]; then
+  echo ""
+  echo "${YELLOW}⚠${NC}  No config file found. Run the setup wizard to configure paths and ports:"
+  echo "     ${GREEN}./dev-start.sh setup${NC}"
+  echo ""
+  echo "   Using defaults for now. Press Ctrl-C to cancel, or wait to continue..."
+  sleep 3
+fi
+
 # ── ROUTER ────────────────────────────────────────────────
 case "${1:-main}" in
   main)        cmd_main ;;
+  setup)       cmd_setup ;;
   switch)      shift; cmd_switch "$@" ;;
   new)         shift; cmd_new "$@" ;;
   attach)      cmd_attach "$2" ;;
