@@ -14,6 +14,8 @@
 #    ./dev-start.sh clean                  → list ES data folders + sizes
 #    ./dev-start.sh clean main|feat|<name> → delete ES data for a session
 #    ./dev-start.sh clean all              → delete ALL ES data
+#    ./dev-start.sh sync                       → regenerate kibana.dev.yml from template (all sessions)
+#    ./dev-start.sh sync main|feat|<branch>    → regenerate for a specific session
 #    ./dev-start.sh status                     → health check all sessions (ping ES + Kibana)
 #    ./dev-start.sh restart main|feat|<branch> → restart ES + Kibana in a running session
 #    ./dev-start.sh renew --cluster-name X → refresh remote ES credentials from oblt-cli
@@ -377,6 +379,8 @@ print_help() {
   echo "  ${GREEN}./dev-start.sh clean${NC}                   List ES data folders + sizes"
   echo "  ${GREEN}./dev-start.sh clean main|feat|<name>${NC}  Delete ES data (start fresh)"
   echo "  ${GREEN}./dev-start.sh clean all${NC}               Delete ALL ES data"
+  echo "  ${GREEN}./dev-start.sh sync${NC}                      Regenerate kibana.dev.yml from template (all sessions)"
+  echo "  ${GREEN}./dev-start.sh sync main|feat|<branch>${NC}  Regenerate for a specific session"
   echo "  ${GREEN}./dev-start.sh status${NC}                    Health check all sessions (ping ES + Kibana)"
   echo "  ${GREEN}./dev-start.sh restart main|feat|<branch>${NC} Restart ES + Kibana in a running session"
   echo "  ${GREEN}./dev-start.sh renew --cluster-name <n>${NC} Refresh remote ES credentials from oblt-cli"
@@ -395,6 +399,7 @@ print_help() {
   echo "    ./dev-start.sh switch feature/slo-filters --remote"
   echo "    ./dev-start.sh new fix/slo-crash"
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
+  echo "    ./dev-start.sh sync                     # after editing the template"
   echo "    ./dev-start.sh restart feat"
   echo "    ./dev-start.sh renew --cluster-name edge-oblt --save"
   echo "    ./dev-start.sh kill slo-crash"
@@ -744,6 +749,99 @@ cmd_status() {
     echo "  Start with: ${GREEN}./dev-start.sh${NC}"
   fi
 
+  echo ""
+}
+
+cmd_sync() {
+  local target="${1:-all}"
+
+  echo ""
+  echo "${BOLD}Syncing kibana.dev.yml from template${NC}"
+  echo ""
+
+  local synced=0
+
+  # Helper: sync a single worktree
+  sync_one() {
+    local label="$1" dir="$2" kibana_port="$3" es_port="$4"
+
+    if [[ ! -d "$dir" ]]; then
+      echo "  ${YELLOW}⚠${NC} $label — directory not found: $dir"
+      return
+    fi
+
+    local yml="$dir/config/kibana.dev.yml"
+    local is_remote=false
+    if [[ -f "$yml" ]] && grep -q "Remote ES" "$yml" 2>/dev/null; then
+      is_remote=true
+    fi
+
+    if [[ "$is_remote" == true ]]; then
+      generate_remote_kibana_dev_yml "$dir" "$kibana_port"
+    else
+      generate_kibana_dev_yml "$dir" "$kibana_port" "$es_port"
+    fi
+    synced=$((synced + 1))
+  }
+
+  case "$target" in
+    main)
+      sync_one "kibana-main" "$KIBANA_MAIN_DIR" "$MAIN_KIBANA_PORT" "$MAIN_ES_PORT"
+      ;;
+    feat)
+      if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+        sync_one "kibana-feat ($FEAT_BRANCH)" "$FEAT_DIR" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT"
+      else
+        echo "${RED}Error:${NC} No feat state found. Run ${GREEN}./dev-start.sh switch <branch>${NC} first."
+        return 1
+      fi
+      ;;
+    all)
+      # kibana-main
+      sync_one "kibana-main" "$KIBANA_MAIN_DIR" "$MAIN_KIBANA_PORT" "$MAIN_ES_PORT"
+
+      # kibana-feat
+      if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+        sync_one "kibana-feat ($FEAT_BRANCH)" "$FEAT_DIR" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT"
+      fi
+
+      # Hotfix sessions — only those with an active tmux session
+      local wt_name session_name
+      for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+        [[ -f "$yml" ]] || continue
+        wt_name=$(echo "$yml" | sed "s|$WORKTREE_BASE/||" | sed 's|/config/kibana.dev.yml||')
+        [[ -n "${FEAT_DIR:-}" && "$WORKTREE_BASE/$wt_name" == "$FEAT_DIR" ]] && continue
+        session_name=$(echo "kibana-$wt_name" | tr '.' '-')
+        tmux has-session -t "$session_name" 2>/dev/null || continue
+        local wt_port wt_es_port
+        wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+        wt_es_port=$(grep -E "^ *- \"?http://localhost:" "$yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+        sync_one "$session_name" "$WORKTREE_BASE/$wt_name" "${wt_port}" "${wt_es_port}"
+      done
+      ;;
+    *)
+      # Treat as branch name
+      local short_name wt_dir
+      short_name=$(echo "$target" | sed 's|.*/||')
+      wt_dir="$WORKTREE_BASE/$short_name"
+      if [[ -f "$wt_dir/config/kibana.dev.yml" ]]; then
+        local wt_port wt_es_port
+        wt_port=$(grep -E "^ *port:" "$wt_dir/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+        wt_es_port=$(grep -E "^ *- \"?http://localhost:" "$wt_dir/config/kibana.dev.yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+        sync_one "kibana-$short_name" "$wt_dir" "${wt_port}" "${wt_es_port}"
+      else
+        echo "${RED}Error:${NC} No kibana.dev.yml found at $wt_dir/config/"
+        return 1
+      fi
+      ;;
+  esac
+
+  if [[ $synced -gt 0 ]]; then
+    echo ""
+    echo "${GREEN}✓${NC} Synced $synced session(s). Run ${GREEN}./dev-start.sh restart <session>${NC} to apply."
+  fi
   echo ""
 }
 
@@ -1432,6 +1530,7 @@ case "${1:-main}" in
   attach)      cmd_attach "$2" ;;
   list)        cmd_list ;;
   status)      cmd_status ;;
+  sync)        cmd_sync "$2" ;;
   clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;

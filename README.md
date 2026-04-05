@@ -84,6 +84,13 @@ The wizard asks for your Kibana repo path, worktree directory, and ports, then w
 
 To customise defaults (credentials, Fleet config, remote ES, etc.), edit `kibana.dev.yml.template` in the repo directly.
 
+To propagate template changes to all running sessions without tearing them down:
+```bash
+vim kibana.dev.yml.template          # add a logger, feature flag, etc.
+~/dev-start.sh sync                  # regenerate kibana.dev.yml in all worktrees
+~/dev-start.sh restart feat          # restart to pick up changes
+```
+
 > **Note on config regeneration:**
 > - `switch` — always regenerates `kibana.dev.yml`. Without `--remote`, generates local ES config from template. With `--remote`, generates from `~/.kibana-remote-es.yml`. This means you can freely switch between local and remote by re-running `switch` with or without the flag.
 > - `new` — if `kibana.dev.yml` already exists (e.g. from a previous run), it is left untouched and a warning is shown (unless `--remote` is passed, which always regenerates). Delete it and re-run if you want to regenerate from the template with fresh ports.
@@ -119,6 +126,8 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh new <branch> --full        # temporary session with full layout (checks + ftr)
 ~/dev-start.sh new <branch> --remote      # temporary session with remote ES
 ~/dev-start.sh new <branch> --full --remote  # full session + remote ES
+~/dev-start.sh sync                       # regenerate kibana.dev.yml from template (all sessions)
+~/dev-start.sh sync feat                  # regenerate for a specific session
 ~/dev-start.sh status                     # health check — ping ES + Kibana for all sessions
 ~/dev-start.sh restart main               # restart ES + Kibana in kibana-main
 ~/dev-start.sh restart feat               # restart ES + Kibana in kibana-feat
