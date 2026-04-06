@@ -1179,7 +1179,7 @@ cmd_restart() {
 
   if [[ -z "$es_port" ]]; then
     is_remote=true
-    es_port="remote"
+    es_port="9200"  # placeholder — kbn-start.sh detects remote ES from kibana.dev.yml and skips local ES
   fi
 
   # Determine host and data folder based on session type
