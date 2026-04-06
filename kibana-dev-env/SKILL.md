@@ -103,11 +103,27 @@ Run all commands as `~/dev-start.sh <command>`:
 | Command | What it does |
 |---------|-------------|
 | *(no args)* | Start/attach kibana-main + kibana-feat |
-| `switch <branch> [--remote]` | Switch kibana-feat to a branch |
-| `new <branch> [--full] [--remote]` | Create worktree + hotfix session |
+| `switch <branch> [--remote]` | **Destructive** — kills kibana-feat, removes its worktree, creates a new one |
+| `new <branch> [--full] [--remote]` | **Non-destructive** — creates an additional session alongside existing ones |
 | `attach <branch>` | Attach to an existing session |
 | `kill <branch>` | Kill session + remove worktree |
 | `kill-all` | Kill ALL kibana-* sessions |
+
+#### Choosing `new` vs `switch`
+
+**Default to `new`** unless the developer explicitly asks to replace the current feat session.
+`switch` kills the running kibana-feat session and removes its worktree — this is destructive
+and the developer may have unsaved work, running servers, or open terminals in that session.
+
+| Developer says | Use | Why |
+|---|---|---|
+| "start working on a new branch" | `new` | Preserves current sessions |
+| "create a session for branch X" | `new` | Additive, no disruption |
+| "I want to work on feature/X" | `new` | Ambiguous → default to non-destructive |
+| "switch feat to branch X" | `switch` | Explicitly asked to replace feat |
+| "replace my current feature branch" | `switch` | Explicitly asked to replace feat |
+
+When in doubt, ask: "Do you want a new session alongside kibana-feat, or replace it?"
 
 ### Operations
 | Command | What it does |
