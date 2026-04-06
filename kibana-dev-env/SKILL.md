@@ -44,6 +44,18 @@ interact with a running Kibana, read `config/kibana.dev.yml` and `~/.kibana-dev.
 automatically to get ports, credentials, and ES host. Don't ask the developer to
 look these up — the config files have everything.
 
+## Important: always use ports from config, not defaults
+
+This setup runs multiple Kibana instances on different ports (feat=5601, main=5602,
+hotfix=5603+). When making Kibana API calls — whether directly or through other
+skills like `observability-manage-slos` or `kibana-api` — always read the port and
+credentials from `config/kibana.dev.yml` in the current working directory. Never
+fall back to hardcoded defaults like `localhost:5601` or `elastic:changeme`.
+
+The `kibana-api` utility in the Kibana repo only tries `localhost:5601` — this is
+wrong for main and hotfix sessions. This skill's config detection takes precedence:
+read `config/kibana.dev.yml` for the correct port, then use it for all API calls.
+
 ## Architecture
 
 ```
