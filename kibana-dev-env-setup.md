@@ -215,6 +215,8 @@ Ctrl-a d    # detach — everything keeps running
 | State file | `~/.kibana-dev-state` | Tracks current kibana-feat branch and path |
 | tmux config | `~/.tmux.conf` | tmux settings, prefix Ctrl-a |
 | Presentation | `kibana-dev-workflow.html` | Team presentation with dark/light theme switcher |
+| `kibana-dev-env/` | `~/.claude/skills/kibana-dev-env` → symlink | Claude skill (SKILL.md + references) |
+| `sync-skill.sh` | repo root | Copies skill to team repo (observability-dev) |
 
 ---
 
@@ -238,7 +240,26 @@ This means:
 mkdir -p ~/bin
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh ~/dev-start.sh
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh ~/bin/kbn-start.sh
+ln -sfn ~/Documents/Development/AI_projects/kibana-env-setup/kibana-dev-env ~/.claude/skills/kibana-dev-env
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh
 ```
+
+---
+
+## Skill Development Workflow
+
+The `kibana-dev-env` skill lives in three places:
+
+| Location | Type | Purpose |
+|---|---|---|
+| `kibana-env-setup/kibana-dev-env/` | Source of truth | Develop and iterate here |
+| `~/.claude/skills/kibana-dev-env` | Symlink → source | Instantly available for local use |
+| `observability-dev/docs/actionable-obs/ai_helpers/skills/` | Copy | Team distribution |
+
+**Workflow:**
+1. Edit the skill in this repo (`kibana-dev-env/SKILL.md`, `references/`)
+2. Changes are instantly live locally via the symlink
+3. When ready to publish: `./sync-skill.sh` copies to the team repo
+4. Review the diff in observability-dev, commit, push, create PR
 
