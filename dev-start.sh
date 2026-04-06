@@ -573,11 +573,12 @@ cmd_list() {
 
   echo ""
   echo "${BOLD}Port assignments:${NC}"
-  local main_k_port main_es_display
+  local main_k_port main_es_display main_branch
   main_k_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
   main_es_display=$(get_es_display "$KIBANA_MAIN_DIR/config/kibana.dev.yml")
+  main_branch=$(git -C "$KIBANA_MAIN_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
   printf "  %-30s →  Kibana :%-6s  ES %s\n" \
-    "kibana-main" "${main_k_port:-$MAIN_KIBANA_PORT}" "$main_es_display"
+    "kibana-main ($main_branch)" "${main_k_port:-$MAIN_KIBANA_PORT}" "$main_es_display"
 
   if [[ -f "$STATE_FILE" ]]; then
     source "$STATE_FILE"
@@ -720,7 +721,9 @@ cmd_status() {
 
   # kibana-main
   if tmux has-session -t "kibana-main" 2>/dev/null && [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]]; then
-    check_session "kibana-main" "$KIBANA_MAIN_DIR/config/kibana.dev.yml"
+    local main_branch
+    main_branch=$(git -C "$KIBANA_MAIN_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    check_session "kibana-main ($main_branch)" "$KIBANA_MAIN_DIR/config/kibana.dev.yml"
   fi
 
   # kibana-feat
