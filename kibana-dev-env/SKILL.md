@@ -255,6 +255,52 @@ Key principle: always suggest `dev-start.sh` commands for fixes, not raw tmux
 commands or manual `yarn start`. The scripts handle port assignments and process
 management automatically.
 
+## Working with Remote ES (`--remote`)
+
+When a session uses `--remote`, Kibana connects to an external Elasticsearch cluster (typically an oblt-cli-managed Cloud deployment) via cross-cluster search (CCS). This changes how indices and data are addressed.
+
+### Index patterns use a CCS prefix
+
+Data on the remote cluster lives behind a `remote_cluster:` prefix. Standard local patterns do not work:
+
+| Local pattern | Remote equivalent |
+|---|---|
+| `logs-*` | `remote_cluster:logs-*` |
+| `metrics-apm*` | `remote_cluster:metrics-apm*` |
+| `traces-apm*` | `remote_cluster:traces-apm*` |
+| `filebeat-*` | `remote_cluster:filebeat-*` |
+
+The exact prefix name (`remote_cluster`) varies by deployment. Check `config/kibana.dev.yml` — the `apm_sources_access.indices` and `uiSettings.overrides` sections show the correct prefix for the current cluster.
+
+### Discovery before creating resources (SLOs, rules, etc.)
+
+When creating SLOs, alerting rules, or any resource that references index patterns or field values, always discover real data first:
+
+1. **Detect the CCS prefix** — inspect `config/kibana.dev.yml` or query existing SLOs:
+   ```bash
+   curl -u "$AUTH" -H "kbn-xsrf: true" "$KIBANA_URL/api/observability/slos?perPage=5" | \
+     jq '.results[].indicator.params.index'
+   ```
+
+2. **Discover real service names** — query the target index for actual `service.name` values:
+   ```bash
+   curl -k -u "$AUTH" "$ES_URL/<index-pattern>/_search" \
+     -H "Content-Type: application/json" \
+     -d '{ "size": 0, "aggs": { "services": { "terms": { "field": "service.name", "size": 30 } } } }'
+   ```
+
+3. **Verify fields exist** — confirm filters reference real fields with data:
+   ```bash
+   curl -k -u "$AUTH" "$ES_URL/<index-pattern>/_search" \
+     -H "Content-Type: application/json" \
+     -d '{ "size": 0, "query": { "bool": { "filter": [
+       { "term": { "service.name": "<service>" } },
+       { "exists": { "field": "http.response.status_code" } }
+     ] } } }'
+   ```
+
+Never use made-up service names or assume local index patterns when connected to a remote cluster. Creating resources against non-existent data produces `NO_DATA` entries that clutter the UI and waste transforms.
+
 ## First-time setup
 
 ```bash
