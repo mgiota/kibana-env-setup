@@ -1,0 +1,35 @@
+{
+  "skill_name": "kibana-dev-env",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to switch to a new feature branch called feature/slo-burnrate and set up remote ES for it. I already have oblt-cli configured.",
+      "expected_output": "Should explain how to use dev-start.sh switch with --remote flag, mention that renew can fetch fresh credentials if needed, and show the expected session output with ports and ES URL.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Can you create an SLO on my running Kibana for my checkout-service? I want 99% of transactions to be under 2 seconds over a 30-day rolling window.",
+      "expected_output": "Should read kibana.dev.yml to get the port and credentials, wait for Kibana readiness, then make the correct POST /api/observability/slos curl call with APM transaction duration indicator type.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I ran restart on my feat session but the Kibana pane is just sitting there doing nothing. ES seems to be running fine though. What's going on?",
+      "expected_output": "Should explain the Kibana graceful shutdown issue, suggest checking if the port is still held (lsof), and provide the manual fix: Ctrl-C in pane 1, then yarn start.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I want to start fresh with a local ES setup on my main branch. How do I get everything running from scratch?",
+      "expected_output": "Should explain using dev-start.sh with no args or restart main, mention that kbn-start.sh handles local ES via yarn es snapshot automatically, show expected ports from config (main=5602/9201), mention nvm use for correct Node version, and suggest dev-start.sh clean main if stale data is an issue. Should NOT suggest running yarn es snapshot or yarn start manually — always use dev-start.sh.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I need to set up a synthetics private location on my local Kibana for testing. Can you help?",
+      "expected_output": "Should auto-detect Kibana port and credentials from config/kibana.dev.yml, run run-data synthetics to create the private location (local ES only), explain the two-step process (Fleet agent policy first, then private location), use the correct Kibana API endpoints, and note that synthetics private locations only work with local ES.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "eval_id": 2,
+  "eval_name": "eval-2-create-slo",
+  "prompt": "Can you create an SLO on my running Kibana for my checkout-service? I want 99% of transactions to be under 2 seconds over a 30-day rolling window.",
+  "assertions": []
+}

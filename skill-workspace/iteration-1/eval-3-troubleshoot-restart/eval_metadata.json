@@ -1,0 +1,6 @@
+{
+  "eval_id": 3,
+  "eval_name": "eval-3-troubleshoot-restart",
+  "prompt": "I ran restart on my feat session but the Kibana pane is just sitting there doing nothing. ES seems to be running fine though. What's going on?",
+  "assertions": []
+}

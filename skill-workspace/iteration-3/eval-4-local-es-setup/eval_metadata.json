@@ -1,0 +1,6 @@
+{
+  "eval_id": 4,
+  "eval_name": "eval-4-local-es-setup",
+  "prompt": "I want to start fresh with a local ES setup on my main branch. How do I get everything running from scratch?",
+  "assertions": []
+}

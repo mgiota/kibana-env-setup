@@ -1,0 +1,6 @@
+{
+  "eval_id": 1,
+  "eval_name": "eval-1-branch-switch-remote",
+  "prompt": "I need to switch to a new feature branch called feature/slo-burnrate and set up remote ES for it. I already have oblt-cli configured.",
+  "assertions": []
+}

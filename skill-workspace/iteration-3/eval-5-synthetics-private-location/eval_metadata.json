@@ -1,0 +1,6 @@
+{
+  "eval_id": 5,
+  "eval_name": "eval-5-synthetics-private-location",
+  "prompt": "I need to set up a synthetics private location on my local Kibana for testing. Can you help?",
+  "assertions": []
+}
