@@ -937,7 +937,11 @@ cmd_switch() {
     source "$STATE_FILE"
     if [[ -n "${FEAT_DIR:-}" && "$FEAT_DIR" != "$worktree_dir" && -d "$FEAT_DIR" ]]; then
       echo "${BLUE}→${NC} Removing old worktree at $FEAT_DIR..."
-      git -C "$KIBANA_MAIN_DIR" worktree remove "$FEAT_DIR" --force
+      if ! git -C "$KIBANA_MAIN_DIR" worktree remove "$FEAT_DIR" --force 2>/dev/null; then
+        echo "${YELLOW}⚠${NC} git worktree remove failed (directory not empty) — force-deleting..."
+        rm -rf "$FEAT_DIR"
+        git -C "$KIBANA_MAIN_DIR" worktree prune 2>/dev/null
+      fi
       echo "${GREEN}✓${NC} Old worktree removed."
     fi
   fi
@@ -1142,7 +1146,11 @@ cmd_kill() {
 
   if [[ -d "$worktree_dir" ]]; then
     echo "${BLUE}→${NC} Removing worktree at $worktree_dir..."
-    git -C "$KIBANA_MAIN_DIR" worktree remove "$worktree_dir" --force
+    if ! git -C "$KIBANA_MAIN_DIR" worktree remove "$worktree_dir" --force 2>/dev/null; then
+      echo "${YELLOW}⚠${NC} git worktree remove failed — force-deleting..."
+      rm -rf "$worktree_dir"
+      git -C "$KIBANA_MAIN_DIR" worktree prune 2>/dev/null
+    fi
     echo "${GREEN}✓${NC} Worktree removed."
   else
     echo "${YELLOW}⚠${NC} No worktree found at $worktree_dir."
