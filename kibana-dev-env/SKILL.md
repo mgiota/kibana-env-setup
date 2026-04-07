@@ -62,7 +62,7 @@ read `config/kibana.dev.yml` for the correct port, then use it for all API calls
 dev-start.sh (CLI router)
   ├── kbn-start.sh    (bootstrap ES + Kibana in tmux panes)
   ├── run-checks.sh   (scoped lint / typecheck / jest)
-  └── run-data.sh     (SLO + synthetics data ingestion)
+  └── run-data.sh     (SLO + synthetics data ingestion + Fleet reset)
 ```
 
 All scripts share config from `~/.kibana-dev.conf` (paths, ports, cluster name)
@@ -128,9 +128,9 @@ When in doubt, ask: "Do you want a new session alongside kibana-feat, or replace
 ### Operations
 | Command | What it does |
 |---------|-------------|
-| `restart <main\|feat\|branch>` | Restart ES + Kibana (handles graceful shutdown) |
+| `restart <main\|feat\|branch>` | Restart ES + Kibana (handles graceful shutdown, auto-rebuilds session if panes are missing) |
 | `renew [--cluster-name <n>] [--save]` | Refresh remote ES credentials (auto-detects cluster from oblt-cli) |
-| `sync [main\|feat\|branch\|all]` | Regenerate kibana.dev.yml from template |
+| `sync [target] [--remote\|--local]` | Regenerate kibana.dev.yml from template (target: main\|feat\|branch\|all) |
 | `clean [main\|feat\|name\|all]` | List or delete ES data folders |
 
 ### Info
@@ -184,6 +184,7 @@ the developer to navigate there manually.
 ```bash
 run-data slo          # Ingest SLO fake_stack data via data_forge.js
 run-data synthetics   # Create synthetics private location (local + remote ES)
+run-data fleet-reset  # Wipe all Fleet state and private locations, then restart
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,

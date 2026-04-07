@@ -128,6 +128,8 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh new <branch> --full --remote  # full session + remote ES
 ~/dev-start.sh sync                       # regenerate kibana.dev.yml from template (all sessions)
 ~/dev-start.sh sync feat                  # regenerate for a specific session
+~/dev-start.sh sync main --remote         # switch kibana-main to remote ES
+~/dev-start.sh sync main --local          # switch kibana-main back to local ES
 ~/dev-start.sh status                     # health check — ping ES + Kibana for all sessions
 ~/dev-start.sh restart main               # restart ES + Kibana in kibana-main
 ~/dev-start.sh restart feat               # restart ES + Kibana in kibana-feat
@@ -285,11 +287,14 @@ The scripts window has pre-populated commands for data ingestion. Press Enter wh
 ```bash
 run-data.sh slo          # ingest SLO fake_stack data via data_forge.js
 run-data.sh synthetics   # create synthetics private location
+run-data.sh fleet-reset  # wipe all Fleet state (signing keys, policies, private locations)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml` at runtime, so it works with both local and remote ES. For remote clusters, it automatically reduces concurrency and payload size to avoid timeouts. Data ingestion always uses the `elastic` superuser (same password as in the config) since service accounts like `kibana_system_user` lack write permissions on data indices.
 
-**Synthetics and remote ES:** `run-data.sh synthetics` only runs on local ES. On remote ES (oblt-cli / Elastic Cloud), Elastic managed locations are already available in the Synthetics locations dropdown — no private location setup needed. The script detects this and shows an informational message instead of running.
+**Synthetics:** `run-data.sh synthetics` works on both local and remote ES. On local ES, it uses `synthetics_private_location.js` with the fleet-server-policy from the template. On remote ES, it uses the fleet-server-policy provisioned via `kibana.dev.yml` and creates the private location via the Kibana API (falls back to creating an agent policy if none exists).
+
+**Fleet reset:** If you see "Cannot read existing Message Signing Key pair" errors, the remote ES has stale Fleet state from a previous Kibana. Run `run-data.sh fleet-reset` to wipe all Fleet state (signing keys, agent policies, private locations), then restart Kibana so preconfiguration runs fresh.
 
 ---
 

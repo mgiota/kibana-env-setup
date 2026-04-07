@@ -13,7 +13,7 @@
 #    Operations:
 #      restart <main|feat|branch>             restart ES + Kibana in a running session
 #      renew [--cluster-name <n>] [--save]    refresh remote ES credentials (auto-detects)
-#      sync [main|feat|branch|all]            regenerate kibana.dev.yml from template
+#      sync [main|feat|branch|all] [--remote|--local]  regenerate kibana.dev.yml from template
 #      clean [main|feat|name|all]             list or delete ES data folders
 #    Info:
 #      list                                   sessions, worktrees & port assignments
@@ -384,7 +384,7 @@ print_help() {
   echo "  ${YELLOW}Operations${NC}"
   echo "    ${GREEN}restart <main|feat|branch>${NC}             Restart ES + Kibana in a running session"
   echo "    ${GREEN}renew [--cluster-name <n>] [--save]${NC}   Refresh remote ES credentials (auto-detects cluster)"
-  echo "    ${GREEN}sync [main|feat|branch|all]${NC}           Regenerate kibana.dev.yml from template"
+  echo "    ${GREEN}sync [target] [--remote|--local]${NC}      Regenerate kibana.dev.yml (target: main|feat|branch|all)"
   echo "    ${GREEN}clean [main|feat|name|all]${NC}            List or delete ES data folders"
   echo ""
   echo "  ${YELLOW}Info${NC}"
@@ -404,6 +404,8 @@ print_help() {
   echo "    ./dev-start.sh restart feat"
   echo "    ./dev-start.sh renew                          # auto-detects cluster"
   echo "    ./dev-start.sh sync                           # after editing template"
+  echo "    ./dev-start.sh sync main --remote              # switch main to remote ES"
+  echo "    ./dev-start.sh sync main --local               # switch main back to local ES"
   echo "    ./dev-start.sh clean feat                     # wipe ES data"
   echo ""
 }
@@ -762,10 +764,29 @@ cmd_status() {
 }
 
 cmd_sync() {
-  local target="${1:-all}"
+  local target="all" force_remote=false force_local=false
+
+  # Parse arguments: target and optional --remote / --local flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --remote) force_remote=true; shift ;;
+      --local)  force_local=true; shift ;;
+      *)        target="$1"; shift ;;
+    esac
+  done
+
+  if [[ "$force_remote" == true && "$force_local" == true ]]; then
+    echo "${RED}Error:${NC} Cannot use both --remote and --local."
+    return 1
+  fi
 
   echo ""
   echo "${BOLD}Syncing kibana.dev.yml from template${NC}"
+  if [[ "$force_remote" == true ]]; then
+    echo "  (forced remote ES mode)"
+  elif [[ "$force_local" == true ]]; then
+    echo "  (forced local ES mode)"
+  fi
   echo ""
 
   local synced=0
@@ -780,12 +801,17 @@ cmd_sync() {
     fi
 
     local yml="$dir/config/kibana.dev.yml"
-    local is_remote=false
-    if [[ -f "$yml" ]] && grep -q "Remote ES" "$yml" 2>/dev/null; then
-      is_remote=true
+    local use_remote=false
+
+    if [[ "$force_remote" == true ]]; then
+      use_remote=true
+    elif [[ "$force_local" == true ]]; then
+      use_remote=false
+    elif [[ -f "$yml" ]] && grep -q "Remote ES" "$yml" 2>/dev/null; then
+      use_remote=true
     fi
 
-    if [[ "$is_remote" == true ]]; then
+    if [[ "$use_remote" == true ]]; then
       generate_remote_kibana_dev_yml "$dir" "$kibana_port"
     else
       generate_kibana_dev_yml "$dir" "$kibana_port" "$es_port"
@@ -1209,40 +1235,73 @@ cmd_restart() {
   echo ""
   echo "${BOLD}Restarting $session${NC}"
 
-  # Kill Kibana first (pane 1), then ES (pane 0)
-  echo "${BLUE}→${NC} Stopping Kibana..."
-  tmux send-keys -t "${session}:servers.1" C-c
-  echo "${BLUE}→${NC} Stopping ES..."
-  tmux send-keys -t "${session}:servers.0" C-c
+  # Verify the servers window has 2 panes — if not, rebuild the session from scratch
+  local pane_count
+  pane_count=$(tmux list-panes -t "${session}:servers" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$pane_count" -ne 2 ]]; then
+    echo "${YELLOW}⚠${NC} servers window has $pane_count pane(s) instead of 2 — rebuilding session..."
+    tmux kill-session -t "$session"
 
-  # Wait for Kibana port to be released (this is the slow one — up to 30s graceful shutdown)
-  echo "${BLUE}→${NC} Waiting for Kibana to exit..."
-  local wait_count=0
-  while lsof -ti :${kibana_port} &>/dev/null && [[ $wait_count -lt 20 ]]; do
-    sleep 2
-    wait_count=$((wait_count + 1))
-  done
+    # Recreate the session with the full layout
+    tmux new-session -d -s "$session" -c "$dir"
+    build_kibana_session "$session" "$dir" \
+      "$kibana_port" "$es_port" "$host" "$data_folder"
 
-  # If Kibana is still hanging, force-kill it
-  if lsof -ti :${kibana_port} &>/dev/null; then
-    echo "${YELLOW}⚠${NC} Kibana didn't exit cleanly, force-killing..."
-    lsof -ti :${kibana_port} | xargs kill -9 2>/dev/null || true
-    sleep 1
+    echo ""
+    echo "${GREEN}✓${NC} Session ${BOLD}$session${NC} rebuilt from scratch."
+    if [[ "$is_remote" == true ]]; then
+      echo "   Kibana  → http://localhost:${kibana_port}  (remote ES)"
+    else
+      echo "   Kibana  → http://localhost:${kibana_port}"
+      echo "   ES      → http://localhost:${es_port}"
+    fi
+    echo ""
+    return
   fi
 
-  # Wait for ES port too (if local)
-  if [[ "$is_remote" != true ]]; then
-    wait_count=0
-    while lsof -ti :${es_port} &>/dev/null && [[ $wait_count -lt 10 ]]; do
+  # ── Stop everything: kill processes by port, then ensure clean panes ──
+
+  # Kill Kibana process by port (pane 1)
+  echo "${BLUE}→${NC} Stopping Kibana (port $kibana_port)..."
+  if lsof -ti :${kibana_port} &>/dev/null; then
+    lsof -ti :${kibana_port} | xargs kill 2>/dev/null || true
+    local wait_count=0
+    while lsof -ti :${kibana_port} &>/dev/null && [[ $wait_count -lt 15 ]]; do
       sleep 2
       wait_count=$((wait_count + 1))
     done
+    # Force-kill if still hanging
+    if lsof -ti :${kibana_port} &>/dev/null; then
+      echo "${YELLOW}⚠${NC} Kibana didn't exit cleanly, force-killing..."
+      lsof -ti :${kibana_port} | xargs kill -9 2>/dev/null || true
+      sleep 1
+    fi
   fi
 
-  # Make sure pane 1 (Kibana) is at a clean shell prompt
+  # Kill ES process by port (pane 0) — local only
+  if [[ "$is_remote" != true ]]; then
+    echo "${BLUE}→${NC} Stopping ES (port $es_port)..."
+    if lsof -ti :${es_port} &>/dev/null; then
+      lsof -ti :${es_port} | xargs kill 2>/dev/null || true
+      local wait_count=0
+      while lsof -ti :${es_port} &>/dev/null && [[ $wait_count -lt 10 ]]; do
+        sleep 2
+        wait_count=$((wait_count + 1))
+      done
+    fi
+  fi
+
+  # Also kill the kbn-start tail/watcher if still running in pane 0
+  tmux send-keys -t "${session}:servers.0" C-c
+  sleep 1
+
+  # Ensure both panes are at a clean shell prompt
+  tmux send-keys -t "${session}:servers.0" C-c
   tmux send-keys -t "${session}:servers.1" C-c
   sleep 1
+  tmux send-keys -t "${session}:servers.0" "" Enter
   tmux send-keys -t "${session}:servers.1" "" Enter
+  sleep 1
 
   # Re-launch kbn-start in the left pane
   echo "${BLUE}→${NC} Re-launching kbn-start..."
@@ -1606,7 +1665,7 @@ case "${1:-main}" in
   attach)      cmd_attach "$2" ;;
   list)        cmd_list ;;
   status)      cmd_status ;;
-  sync)        cmd_sync "$2" ;;
+  sync)        shift; cmd_sync "$@" ;;
   clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;

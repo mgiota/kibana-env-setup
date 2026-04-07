@@ -84,3 +84,21 @@ integration is on the roadmap.)
 - Install oblt-cli: https://github.com/elastic/observability-test-environments
 - Auth: `gcloud auth login` and `gcloud auth application-default login`
 - Verify: `oblt-cli cluster list` should show your clusters
+
+## Fleet: "Cannot read existing Message Signing Key pair"
+
+**Symptom:** Kibana logs show repeated `failed to get message signing phrase` errors.
+Fleet preconfiguration (agent policies from `kibana.dev.yml`) silently fails — no
+policies appear in Fleet despite being configured.
+
+**Cause:** The remote ES has Fleet signing keys encrypted by a different Kibana instance
+(e.g., the cloud Kibana). Your local Kibana has different encryption keys and can't
+decrypt the existing signing keys.
+
+**Fix:** Run `run-data fleet-reset` from the Kibana directory, then restart Kibana:
+```bash
+run-data fleet-reset
+~/dev-start.sh restart main   # or feat, or <branch>
+```
+This deletes the stale signing keys, agent policies, and private locations from ES.
+On restart, Fleet creates fresh signing keys and preconfiguration runs cleanly.
