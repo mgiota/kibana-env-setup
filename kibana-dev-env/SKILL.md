@@ -157,6 +157,9 @@ port arguments) to pane 1.
 **Remote ES** — When `--remote` is passed, `dev-start.sh` generates `kibana.dev.yml`
 using credentials from `~/.kibana-remote-es.yml` (fetched via `oblt-cli` or pasted
 manually). `kbn-start.sh` detects the remote URL and skips local ES startup.
+Fleet config (agent policies, Fleet Server, package installations) is also included
+in the remote `kibana.dev.yml` — the Fleet ES output host points to the remote
+cluster instead of `host.docker.internal`.
 
 ### Credential renewal flow
 
@@ -180,7 +183,7 @@ the developer to navigate there manually.
 
 ```bash
 run-data slo          # Ingest SLO fake_stack data via data_forge.js
-run-data synthetics   # Create synthetics private location (local ES only)
+run-data synthetics   # Create synthetics private location (local + remote ES)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,

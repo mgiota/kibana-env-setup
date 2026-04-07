@@ -62,7 +62,7 @@ xpack.fleet.outputs:
     type: elasticsearch
     is_default: true
     is_default_monitoring: true
-    hosts: ['http://host.docker.internal:__ES_PORT__'] # For enrolling dockerized agents
+    hosts: ['__FLEET_ES_HOST__'] # For enrolling dockerized agents
 
 # Install Fleet Server package
 xpack.fleet.packages:

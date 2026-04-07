@@ -157,6 +157,7 @@ generate_kibana_dev_yml() {
   sed \
     -e "s/__KIBANA_PORT__/$kibana_port/g" \
     -e "s/__ES_PORT__/$es_port/g" \
+    -e "s|__FLEET_ES_HOST__|http://host.docker.internal:$es_port|g" \
     "$TEMPLATE" > "$dir/config/kibana.dev.yml"
 
   echo "${GREEN}✓${NC} config/kibana.dev.yml  → Kibana :$kibana_port  ES :$es_port"
@@ -178,6 +179,10 @@ generate_remote_kibana_dev_yml() {
   fi
 
   mkdir -p "$dir/config"
+
+  local remote_host
+  remote_host=$(grep -E "^ *hosts:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | sed 's|.*hosts: *||' | tr -d '"' | tr -d ' ')
+
   {
     echo "server:"
     echo "  port: ${kibana_port}"
@@ -193,10 +198,13 @@ generate_remote_kibana_dev_yml() {
       skipping { match($0,/^[[:space:]]*/); if(RLENGTH>lvl){next} else {skipping=0} }
       {print}
     ' "$REMOTE_ES_CONFIG"
+    echo ""
+    # Append Fleet config from template (everything after the ES connection block)
+    # Substitute placeholders with remote values
+    sed -n '/^# Create an agent policy/,$ p' "$TEMPLATE" \
+      | sed "s|__FLEET_ES_HOST__|${remote_host}|g"
   } > "$dir/config/kibana.dev.yml"
 
-  local remote_host
-  remote_host=$(grep -E "^ *hosts:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | sed 's|.*hosts: *||' | tr -d '"' | tr -d ' ')
   echo "${GREEN}✓${NC} config/kibana.dev.yml  → Kibana :$kibana_port  ES: ${BLUE}${remote_host:-remote}${NC}"
 }
 

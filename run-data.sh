@@ -110,22 +110,99 @@ case "$1" in
     ;;
 
   synthetics)
-    if [[ "$IS_REMOTE" == true ]]; then
-      echo "ℹ️  Remote ES detected — skipping private location setup."
-      echo ""
-      echo "   Elastic managed locations are already available on cloud clusters."
-      echo "   Open Synthetics in Kibana and use the pre-populated locations dropdown."
-      echo ""
-      echo "   Private locations are only needed for local ES, where managed locations"
-      echo "   don't exist. Switch to local ES and re-run if you need a private location."
-      exit 0
-    fi
     wait_for_kibana
-    node x-pack/scripts/synthetics_private_location.js \
-      --elasticsearch-host "${ES_HOST}" \
-      --kibana-url "http://localhost:${KIBANA_PORT}" \
-      --kibana-username "${DATA_USERNAME}" \
-      --kibana-password "${DATA_PASSWORD}"
+    local KIBANA_URL="http://localhost:${KIBANA_PORT}"
+    local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
+
+    if [[ "$IS_REMOTE" == true ]]; then
+      echo "🌐  Remote ES — creating private location via Kibana API"
+      echo "    (managed locations are already available; this adds a private one alongside them)"
+      echo ""
+
+      # Check if a private location already exists
+      local existing
+      existing=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
+        -H "kbn-xsrf: true" \
+        -u "$AUTH" 2>/dev/null)
+      if echo "$existing" | grep -q '"label"'; then
+        echo "ℹ️  Private locations already exist:"
+        echo "$existing" | grep -o '"label":"[^"]*"' | sed 's/"label":"//;s/"/  → /' | while read -r loc; do
+          echo "    • $loc"
+        done
+        echo ""
+        echo "   Delete existing ones first if you want to recreate."
+        exit 0
+      fi
+
+      # Find a suitable agent policy from Fleet
+      echo "▶ Querying Fleet agent policies..."
+      local policies_response
+      policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=50" \
+        -H "kbn-xsrf: true" \
+        -u "$AUTH" 2>/dev/null)
+
+      # Try to find an existing policy we can use (prefer one not already tied to a private location)
+      local policy_id
+      policy_id=$(echo "$policies_response" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
+
+      if [[ -z "$policy_id" ]]; then
+        # No policies exist — create a dedicated one
+        echo "▶ No agent policies found — creating one for private location..."
+        local create_response
+        create_response=$(curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies" \
+          -H "kbn-xsrf: true" \
+          -H "Content-Type: application/json" \
+          -u "$AUTH" \
+          -d '{
+            "name": "Synthetics Private Location Policy",
+            "description": "Agent policy for synthetics private location (dev)",
+            "namespace": "default",
+            "monitoring_enabled": ["logs", "metrics"]
+          }' 2>/dev/null)
+        policy_id=$(echo "$create_response" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
+        if [[ -z "$policy_id" ]]; then
+          echo "❌  Failed to create agent policy:"
+          echo "$create_response"
+          exit 1
+        fi
+        echo "✅  Created agent policy: $policy_id"
+      else
+        local policy_name
+        policy_name=$(echo "$policies_response" | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')
+        echo "✅  Using existing agent policy: $policy_name ($policy_id)"
+      fi
+
+      # Create the private location
+      echo "▶ Creating private location..."
+      local location_response
+      location_response=$(curl -s -X POST "$KIBANA_URL/api/synthetics/private_locations" \
+        -H "kbn-xsrf: true" \
+        -H "Content-Type: application/json" \
+        -u "$AUTH" \
+        -d "{
+          \"label\": \"Dev Private Location\",
+          \"agentPolicyId\": \"$policy_id\",
+          \"geo\": { \"lat\": 41.12, \"lon\": -71.34 }
+        }" 2>/dev/null)
+
+      if echo "$location_response" | grep -q '"label"'; then
+        echo "✅  Private location created: Dev Private Location"
+        echo ""
+        echo "    You now have both managed and private locations in Synthetics."
+        echo "    Note: monitors on this private location won't run without an enrolled agent."
+      else
+        echo "❌  Failed to create private location:"
+        echo "$location_response"
+        exit 1
+      fi
+    else
+      # Local ES — use the existing script (fleet-server-policy from kibana.dev.yml template)
+      node x-pack/scripts/synthetics_private_location.js \
+        --elasticsearch-host "${ES_HOST}" \
+        --kibana-url "$KIBANA_URL" \
+        --kibana-username "${DATA_USERNAME}" \
+        --kibana-password "${DATA_PASSWORD}"
+    fi
     ;;
 
   *)
