@@ -116,100 +116,196 @@ case "$1" in
     local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
 
     if [[ "$IS_REMOTE" == true ]]; then
-      echo "🌐  Remote ES — creating private location via Kibana API"
-      echo "    (managed locations are already available; this adds a private one alongside them)"
+      # Remote ES — orchestrate Docker containers directly because the Kibana
+      # synthetics_private_location.js script hardcodes KIBANA_PASSWORD=changeme
+      # in the Fleet Server Docker container, which fails against remote ES.
+      echo "🌐  Remote ES — setting up private location with local Fleet Server + Agent"
       echo ""
 
-      # Check if a private location already exists
+      # ── 0. Check if private location already exists ────────
       local existing
       existing=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
-        -H "kbn-xsrf: true" \
-        -u "$AUTH" 2>/dev/null)
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
       if echo "$existing" | grep -q '"label"'; then
         echo "ℹ️  Private locations already exist:"
         echo "$existing" | grep -o '"label":"[^"]*"' | sed 's/"label":"//;s/"/  → /' | while read -r loc; do
           echo "    • $loc"
         done
         echo ""
-        echo "   Delete existing ones first if you want to recreate."
-        exit 0
+        echo "   Run 'run-data fleet-reset' first if you want to recreate."
+        return 0
       fi
 
-      # Find a suitable agent policy from Fleet
-      # Prefer fleet-server-policy (preconfigured via kibana.dev.yml) for consistency with local ES
-      echo "▶ Querying Fleet agent policies..."
-      local policy_id="" policy_name=""
+      # ── 1. Determine Kibana/agent version for Docker tags ──
+      local kibana_version
+      kibana_version=$(curl -s "$KIBANA_URL/api/status" -u "$AUTH" 2>/dev/null \
+        | grep -o '"number":"[^"]*"' | head -1 | sed 's/"number":"//;s/"//')
+      if [[ -z "$kibana_version" ]]; then
+        echo "❌  Could not determine Kibana version."
+        return 1
+      fi
+      local agent_image_version="${kibana_version}-SNAPSHOT"
+      echo "   Agent image version: ${agent_image_version}"
 
-      # First: check for the preconfigured fleet-server-policy
+      # ── 2. Create or find agent policy ─────────────────────
+      echo "▶ Checking for fleet-server-policy..."
+      local policy_id="" policy_name=""
       local fsp_response
       fsp_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies/fleet-server-policy" \
-        -H "kbn-xsrf: true" \
-        -u "$AUTH" 2>/dev/null)
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
       if echo "$fsp_response" | grep -q '"id":"fleet-server-policy"'; then
         policy_id="fleet-server-policy"
         policy_name=$(echo "$fsp_response" | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')
-      fi
-
-      # Fallback: use any existing policy
-      if [[ -z "$policy_id" ]]; then
-        local policies_response
-        policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=50" \
-          -H "kbn-xsrf: true" \
-          -u "$AUTH" 2>/dev/null)
-        policy_id=$(echo "$policies_response" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
-        policy_name=$(echo "$policies_response" | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')
-      fi
-
-      # Last resort: create a dedicated policy
-      if [[ -z "$policy_id" ]]; then
-        echo "▶ No agent policies found — creating one for private location..."
+        echo "✅  Using agent policy: $policy_name ($policy_id)"
+      else
+        echo "▶ Creating agent policy for Fleet Server..."
         local create_response
         create_response=$(curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies" \
-          -H "kbn-xsrf: true" \
-          -H "Content-Type: application/json" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
           -u "$AUTH" \
           -d '{
-            "name": "Synthetics Private Location Policy",
-            "description": "Agent policy for synthetics private location (dev)",
+            "id": "fleet-server-policy",
+            "name": "Fleet Server",
+            "description": "Fleet Server policy (dev)",
             "namespace": "default",
-            "monitoring_enabled": ["logs", "metrics"]
+            "monitoring_enabled": ["logs", "metrics"],
+            "has_fleet_server": true
           }' 2>/dev/null)
         policy_id=$(echo "$create_response" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
         if [[ -z "$policy_id" ]]; then
           echo "❌  Failed to create agent policy:"
           echo "$create_response"
-          exit 1
+          return 1
         fi
         echo "✅  Created agent policy: $policy_id"
-      else
-        echo "✅  Using agent policy: $policy_name ($policy_id)"
       fi
 
-      # Create the private location
+      # ── 3. Create private location ─────────────────────────
       echo "▶ Creating private location..."
       local location_response
       location_response=$(curl -s -X POST "$KIBANA_URL/api/synthetics/private_locations" \
-        -H "kbn-xsrf: true" \
-        -H "Content-Type: application/json" \
+        -H "kbn-xsrf: true" -H "Content-Type: application/json" \
         -u "$AUTH" \
         -d "{
           \"label\": \"Dev Private Location\",
           \"agentPolicyId\": \"$policy_id\",
           \"geo\": { \"lat\": 41.12, \"lon\": -71.34 }
         }" 2>/dev/null)
-
       if echo "$location_response" | grep -q '"label"'; then
         echo "✅  Private location created: Dev Private Location"
-        echo ""
-        echo "    You now have both managed and private locations in Synthetics."
-        echo "    Note: monitors on this private location won't run without an enrolled agent."
       else
         echo "❌  Failed to create private location:"
         echo "$location_response"
-        exit 1
+        return 1
       fi
+
+      # ── 4. Update Fleet Server hosts to point to local Docker ─
+      echo "▶ Updating Fleet Server host to local Docker..."
+      # List existing fleet server hosts to find the default one
+      local hosts_response host_id
+      hosts_response=$(curl -s "$KIBANA_URL/api/fleet/fleet_server_hosts" \
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+      host_id=$(echo "$hosts_response" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
+      if [[ -n "$host_id" ]]; then
+        curl -s -X PUT "$KIBANA_URL/api/fleet/fleet_server_hosts/$host_id" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+          -u "$AUTH" \
+          -d '{"name":"Default Fleet server","host_urls":["https://host.docker.internal:8220"],"is_default":true}' > /dev/null 2>&1
+        echo "✅  Fleet Server host updated to https://host.docker.internal:8220"
+      else
+        # Create a new Fleet Server host entry
+        curl -s -X POST "$KIBANA_URL/api/fleet/fleet_server_hosts" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+          -u "$AUTH" \
+          -d '{"id":"default-fleet-server","name":"Default Fleet server","host_urls":["https://host.docker.internal:8220"],"is_default":true}' > /dev/null 2>&1
+        echo "✅  Fleet Server host created at https://host.docker.internal:8220"
+      fi
+
+      # ── 5. Get enrollment token ────────────────────────────
+      echo "▶ Fetching enrollment token..."
+      local enrollment_response enrollment_token
+      enrollment_response=$(curl -s "$KIBANA_URL/api/fleet/enrollment_api_keys" \
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+      enrollment_token=$(echo "$enrollment_response" \
+        | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for key in data.get('items', []):
+    if key.get('policy_id') == '$policy_id':
+        print(key['api_key'])
+        break
+" 2>/dev/null)
+      if [[ -z "$enrollment_token" ]]; then
+        echo "❌  Could not find enrollment token for policy $policy_id"
+        return 1
+      fi
+      echo "✅  Enrollment token retrieved"
+
+      # ── 6. Stop any existing Fleet Server / Agent containers ─
+      echo "▶ Cleaning up old containers..."
+      docker rm -f kibana-dev-fleet-server 2>/dev/null
+      docker rm -f kibana-dev-agent 2>/dev/null
+
+      # ── 7. Start Fleet Server container ────────────────────
+      echo "▶ Starting Fleet Server container..."
+      local docker_es_host="${ES_HOST}"
+      docker run -d --name kibana-dev-fleet-server \
+        -e FLEET_SERVER_ENABLE=1 \
+        -e "FLEET_SERVER_ELASTICSEARCH_HOST=${docker_es_host}" \
+        -e FLEET_SERVER_POLICY_ID=fleet-server-policy \
+        -e FLEET_INSECURE=1 \
+        -e KIBANA_HOST=http://host.docker.internal:${KIBANA_PORT} \
+        -e KIBANA_USERNAME=${DATA_USERNAME} \
+        -e "KIBANA_PASSWORD=${DATA_PASSWORD}" \
+        -e KIBANA_FLEET_SETUP=1 \
+        -p 8220:8220 \
+        "docker.elastic.co/elastic-agent/elastic-agent:${agent_image_version}"
+
+      # Wait for Fleet Server to be ready
+      echo "⏳  Waiting for Fleet Server on port 8220..."
+      local fleet_ready=false
+      for i in {1..30}; do
+        if curl -sk "https://localhost:8220/api/status" 2>/dev/null | grep -q "HEALTHY\|online"; then
+          fleet_ready=true
+          break
+        fi
+        sleep 3
+      done
+      if [[ "$fleet_ready" == true ]]; then
+        echo "✅  Fleet Server is healthy"
+      else
+        echo "⚠  Fleet Server may not be ready yet (timed out after 90s)"
+        echo "   Check: docker logs kibana-dev-fleet-server"
+        echo "   Continuing with agent enrollment anyway..."
+      fi
+
+      # ── 8. Enroll agent container ──────────────────────────
+      echo "▶ Starting Elastic Agent container (enrollment)..."
+      docker run -d --name kibana-dev-agent \
+        -e FLEET_URL=https://host.docker.internal:8220 \
+        -e FLEET_ENROLL=1 \
+        -e "FLEET_ENROLLMENT_TOKEN=${enrollment_token}" \
+        -e FLEET_INSECURE=1 \
+        "docker.elastic.co/elastic-agent/elastic-agent-complete:${agent_image_version}"
+
+      echo ""
+      echo "════════════════════════════════════════════════════════════════"
+      echo "  SYNTHETICS PRIVATE LOCATION READY"
+      echo "════════════════════════════════════════════════════════════════"
+      echo "  Private Location:   Dev Private Location"
+      echo "  Fleet Server:       docker — kibana-dev-fleet-server (port 8220)"
+      echo "  Elastic Agent:      docker — kibana-dev-agent"
+      echo ""
+      echo "  Check agent status:"
+      echo "    docker logs kibana-dev-agent"
+      echo ""
+      echo "  To tear down:"
+      echo "    docker rm -f kibana-dev-fleet-server kibana-dev-agent"
+      echo "════════════════════════════════════════════════════════════════"
     else
-      # Local ES — use the existing script (fleet-server-policy from kibana.dev.yml template)
+      # Local ES — use the existing Kibana script which handles
+      # Fleet Server, agent enrollment, and private location creation.
+      # Credentials default to elastic/changeme which matches local ES.
       node x-pack/scripts/synthetics_private_location.js \
         --elasticsearch-host "${ES_HOST}" \
         --kibana-url "$KIBANA_URL" \

@@ -1125,8 +1125,8 @@ elasticsearch.password: "changeme"</pre>
     </div>
     <div class="card card-blue">
       <div class="card-label">run-data.sh synthetics</div>
-      <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location. <strong style="color:var(--text-bright)">Works on both local and remote ES.</strong></p>
-      <p style="font-size:0.78rem">On local ES, uses <code>synthetics_private_location.js</code>. On remote ES, uses the fleet-server-policy provisioned from <code>kibana.dev.yml</code> (same template) and creates the private location via the Kibana API. Falls back to creating an agent policy via API only if none exists. Both paths poll <code>/api/status</code> and wait for Kibana to be fully ready before running.</p>
+      <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location with Fleet Server + Elastic Agent. <strong style="color:var(--text-bright)">Works on both local and remote ES.</strong></p>
+      <p style="font-size:0.78rem">On local ES, uses <code>synthetics_private_location.js</code> which starts Fleet Server, enrolls an agent, and creates the private location. On remote ES, orchestrates Docker containers directly (Fleet Server + elastic-agent-complete) with proper credentials, updates Fleet Server host to local Docker, and enrolls the agent — so monitors actually run instead of staying in "Pending".</p>
     </div>
   </div>
 
@@ -1258,7 +1258,7 @@ elasticsearch.password: "changeme"</pre>
     <div class="cmd-group">
       <div class="cmd-group-header" style="color:var(--purple)">helper scripts</div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh slo</span><span class="cmd-desc">ingest SLO fake_stack data via data_forge.js — waits for Kibana, reads creds from config</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location (local ES via script, remote ES via fleet-server-policy from config)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location with Fleet Server + Agent (local ES via script, remote ES via Docker containers)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh fleet-reset</span><span class="cmd-desc">wipe all Fleet state (signing keys, policies, private locations) — restart Kibana after</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>

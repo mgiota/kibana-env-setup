@@ -184,13 +184,20 @@ the developer to navigate there manually.
 
 ```bash
 run-data slo          # Ingest SLO fake_stack data via data_forge.js
-run-data synthetics   # Create synthetics private location (local + remote ES)
+run-data synthetics   # Create synthetics private location (Fleet Server + Agent)
 run-data fleet-reset  # Wipe all Fleet state and private locations, then restart
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,
 waits for Kibana readiness via `/api/status`, and uses the `elastic` superuser
 (not `kibana_system_user`, which lacks write permissions).
+
+**Synthetics private location:** On local ES, uses the Kibana `synthetics_private_location.js`
+script which starts Fleet Server, enrolls an agent, and creates the location. On remote ES,
+orchestrates Docker containers directly (Fleet Server + elastic-agent-complete) with actual
+credentials from config — the Kibana script hardcodes `changeme` which fails on remote ES.
+Named containers (`kibana-dev-fleet-server`, `kibana-dev-agent`) are used for easy management.
+Tear down with: `docker rm -f kibana-dev-fleet-server kibana-dev-agent`
 
 For remote ES, it auto-reduces concurrency (payload 1000, concurrency 1,
 events-per-cycle 10) to avoid timeouts.
