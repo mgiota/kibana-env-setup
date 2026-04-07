@@ -108,6 +108,7 @@ Run all commands as `~/dev-start.sh <command>`:
 | `attach <branch>` | Attach to an existing session |
 | `kill <branch>` | Kill session + remove worktree |
 | `kill-all` | Kill ALL kibana-* sessions |
+| `prune` | Remove orphaned worktrees (no active tmux session) |
 
 #### Choosing `new` vs `switch`
 

@@ -1244,6 +1244,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh new &lt;branch&gt; --full</span><span class="cmd-desc">create full session</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill &lt;branch&gt;</span><span class="cmd-desc">kill session + remove worktree</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh kill-all</span><span class="cmd-desc">kill all kibana-* sessions</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh prune</span><span class="cmd-desc">remove orphaned worktrees (no active tmux session) — interactive, pick one or all</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh list</span><span class="cmd-desc">list sessions, ports, worktrees + mismatch warnings</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh sync [target] [--remote|--local]</span><span class="cmd-desc">regenerate kibana.dev.yml — use <code>--remote</code> to switch to remote ES, <code>--local</code> to switch back</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--green)">./dev-start.sh status</span><span class="cmd-desc">health check — ping ES + Kibana for all active sessions</span></div>

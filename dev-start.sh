@@ -10,6 +10,7 @@
 #      attach <branch>                        attach to an existing session
 #      kill <branch>                          kill session + remove worktree
 #      kill-all                               kill ALL kibana-* sessions
+#      prune                                  remove orphaned worktrees (no active session)
 #    Operations:
 #      restart <main|feat|branch>             restart ES + Kibana in a running session
 #      renew [--cluster-name <n>] [--save]    refresh remote ES credentials (auto-detects)
@@ -380,6 +381,7 @@ print_help() {
   echo "    ${GREEN}attach <branch>${NC}                        Attach to an existing session"
   echo "    ${GREEN}kill <branch>${NC}                          Kill session + remove worktree"
   echo "    ${GREEN}kill-all${NC}                               Kill ALL kibana-* sessions"
+  echo "    ${GREEN}prune${NC}                                  Remove orphaned worktrees (no active session)"
   echo ""
   echo "  ${YELLOW}Operations${NC}"
   echo "    ${GREEN}restart <main|feat|branch>${NC}             Restart ES + Kibana in a running session"
@@ -1155,6 +1157,115 @@ cmd_kill_all() {
   done
 }
 
+cmd_prune() {
+  echo ""
+  echo "${BOLD}Checking for orphaned worktrees${NC} (no active tmux session)..."
+  echo ""
+
+  # Get active tmux session names
+  local active_sessions
+  active_sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+
+  # Load feat state to know which worktree is the current feat
+  local feat_dir=""
+  if [[ -f "$STATE_FILE" ]]; then
+    source "$STATE_FILE"
+    feat_dir="${FEAT_DIR:-}"
+  fi
+
+  # Collect orphaned worktrees into parallel indexed variables (zsh-compatible)
+  local orphan_count=0
+  local orphan_dirs=""    # newline-separated list of dirs
+  local orphan_labels=""  # newline-separated list of labels
+
+  for wt_dir in "$WORKTREE_BASE"/*/; do
+    [[ -d "$wt_dir" ]] || continue
+    local wt_name
+    wt_name=$(basename "$wt_dir")
+
+    # Skip if this is the current feat worktree
+    if [[ "$WORKTREE_BASE/$wt_name" == "$feat_dir" ]]; then
+      continue
+    fi
+
+    # Check if there's an active tmux session for this worktree
+    # Special case: worktrees/main is NOT used by kibana-main (which uses KIBANA_MAIN_DIR)
+    local session_name
+    session_name=$(echo "kibana-$wt_name" | tr '.' '-')
+    if [[ "$wt_name" != "main" ]] && echo "$active_sessions" | grep -q "^${session_name}$"; then
+      continue
+    fi
+
+    # This worktree has no active session — it's orphaned
+    local branch_name
+    branch_name=$(git -C "$wt_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    local size
+    size=$(du -sh "$wt_dir" 2>/dev/null | awk '{print $1}')
+    orphan_count=$((orphan_count + 1))
+    orphan_dirs="${orphan_dirs}${wt_dir}
+"
+    orphan_labels="${orphan_labels}${wt_name} (${branch_name}, ${size})
+"
+  done
+
+  if [[ $orphan_count -eq 0 ]]; then
+    echo "  ${GREEN}✓${NC} No orphaned worktrees found."
+    echo ""
+    return
+  fi
+
+  echo "  Found $orphan_count orphaned worktree(s):"
+  echo ""
+  local idx=1
+  echo "$orphan_labels" | while IFS= read -r label; do
+    [[ -z "$label" ]] && continue
+    local dir
+    dir=$(echo "$orphan_dirs" | sed -n "${idx}p")
+    echo "    ${BLUE}${idx}.${NC} $label"
+    echo "       $dir"
+    idx=$((idx + 1))
+  done
+  echo ""
+
+  read -r "?Remove all orphaned worktrees? [y/N/number to remove one]: " answer
+
+  case "$answer" in
+    y|Y)
+      echo "$orphan_dirs" | while IFS= read -r wt_dir; do
+        [[ -z "$wt_dir" ]] && continue
+        local wt_name
+        wt_name=$(basename "$wt_dir")
+        echo "${BLUE}→${NC} Removing $wt_name..."
+        git -C "$KIBANA_MAIN_DIR" worktree remove "$wt_dir" --force 2>/dev/null \
+          || rm -rf "$wt_dir"
+        echo "${GREEN}✓${NC} Removed."
+      done
+      git -C "$KIBANA_MAIN_DIR" worktree prune 2>/dev/null
+      echo ""
+      echo "${GREEN}✓${NC} All orphaned worktrees removed."
+      ;;
+    [0-9]*)
+      local pick_dir
+      pick_dir=$(echo "$orphan_dirs" | sed -n "${answer}p")
+      if [[ -n "$pick_dir" && -d "$pick_dir" ]]; then
+        local wt_name
+        wt_name=$(basename "$pick_dir")
+        echo "${BLUE}→${NC} Removing $wt_name..."
+        git -C "$KIBANA_MAIN_DIR" worktree remove "$pick_dir" --force 2>/dev/null \
+          || rm -rf "$pick_dir"
+        git -C "$KIBANA_MAIN_DIR" worktree prune 2>/dev/null
+        echo "${GREEN}✓${NC} Removed."
+      else
+        echo "${RED}Error:${NC} Invalid number."
+      fi
+      ;;
+    *)
+      echo "  Skipped."
+      ;;
+  esac
+  echo ""
+}
+
 cmd_restart() {
   local target="${1:-}"
 
@@ -1669,6 +1780,7 @@ case "${1:-main}" in
   clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;
+  prune)       cmd_prune ;;
   help|--help) print_help ;;
   *)
     echo "${RED}Unknown command:${NC} $1"

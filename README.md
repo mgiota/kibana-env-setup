@@ -143,6 +143,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
+~/dev-start.sh prune                      # remove orphaned worktrees (no active session)
 ~/dev-start.sh list                       # show sessions, worktrees, port assignments + warnings
 ~/dev-start.sh attach <branch>            # attach to an existing temporary session
 ~/dev-start.sh help                       # usage
