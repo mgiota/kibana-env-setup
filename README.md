@@ -138,7 +138,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh clean main                 # delete ES data for kibana-main
 ~/dev-start.sh clean feat                 # delete ES data for current feat branch
 ~/dev-start.sh clean all                  # delete ALL ES data
-~/dev-start.sh renew                      # refresh remote ES creds (auto-detects cluster)
+~/dev-start.sh renew                      # refresh remote ES creds (auto-creates cluster if gone)
 ~/dev-start.sh renew --cluster-name <n>   # refresh with explicit cluster name
 ~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
@@ -259,7 +259,9 @@ The `renew` command pulls fresh credentials from oblt-cli and writes them to `~/
 ~/dev-start.sh renew --cluster-name edge-oblt --save  # also save the name for next time
 ```
 
-The cluster name is resolved in this order: `--cluster-name` flag → saved name in `~/.kibana-dev.conf` → auto-detected from `oblt-cli cluster list`. When a cluster expires and a new one is created, just run `renew` — it picks up the new name automatically.
+The cluster name is resolved in this order: `--cluster-name` flag → saved name in `~/.kibana-dev.conf` → auto-detected from `oblt-cli cluster list`.
+
+If no cluster is found (e.g. it expired and was destroyed), `renew` offers to create a new one automatically using `oblt-cli cluster create`. The create command is configurable via `OBLT_CLUSTER_CREATE_CMD` in `~/.kibana-dev.conf` (defaults to `oblt-cli cluster create ccs --remote-cluster=edge-lite-oblt`). Cluster creation is async — you'll get a Slack notification when it's ready, then run `renew` again to fetch the credentials. The same offer appears if `renew` has a saved cluster name but fetching secrets fails (likely because the cluster was destroyed).
 
 `renew` automatically regenerates `kibana.dev.yml` for any active remote sessions. After renewing, just restart to pick up the new credentials:
 ```bash

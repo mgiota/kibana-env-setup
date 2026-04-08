@@ -43,3 +43,6 @@
 # ── Remote ES (oblt-cli) ────────────────────────────────
 # oblt-cli cluster name (used by ./dev-start.sh renew)
 # OBLT_CLUSTER_NAME="my-cluster-name"
+
+# Command to create a new oblt-cli cluster (used when renew can't find one)
+# OBLT_CLUSTER_CREATE_CMD="oblt-cli cluster create ccs --remote-cluster=edge-lite-oblt"

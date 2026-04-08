@@ -130,7 +130,7 @@ When in doubt, ask: "Do you want a new session alongside kibana-feat, or replace
 | Command | What it does |
 |---------|-------------|
 | `restart <main\|feat\|branch>` | Restart ES + Kibana (handles graceful shutdown, auto-rebuilds session if panes are missing) |
-| `renew [--cluster-name <n>] [--save]` | Refresh remote ES credentials (auto-detects cluster from oblt-cli) |
+| `renew [--cluster-name <n>] [--save]` | Refresh remote ES credentials; auto-creates cluster if destroyed |
 | `sync [target] [--remote\|--local]` | Regenerate kibana.dev.yml from template (target: main\|feat\|branch\|all) |
 | `clean [main\|feat\|name\|all]` | List or delete ES data folders |
 
@@ -164,7 +164,7 @@ cluster instead of `host.docker.internal`.
 
 ### Credential renewal flow
 
-When remote ES credentials expire:
+When remote ES credentials expire or the cluster has been destroyed:
 
 ```bash
 ~/dev-start.sh renew              # auto-detects cluster, fetches fresh creds
@@ -175,6 +175,11 @@ When remote ES credentials expire:
 credentials via `oblt-cli cluster secrets kibana-config`, writes to
 `~/.kibana-remote-es.yml`, and regenerates `kibana.dev.yml` for active remote
 sessions if credentials changed.
+
+If no cluster exists (expired and destroyed), `renew` offers to create a new one
+via `oblt-cli cluster create`. The create command is configurable in
+`~/.kibana-dev.conf` via `OBLT_CLUSTER_CREATE_CMD`. Creation is async — run
+`renew` again after the Slack notification confirms the cluster is ready.
 
 ## Data Ingestion
 
