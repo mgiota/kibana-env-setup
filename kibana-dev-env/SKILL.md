@@ -22,25 +22,29 @@ quality checks.
 ## Installation
 
 The `scripts/` folder contains all the scripts and config templates needed to run
-this environment. To install on a new machine:
+this environment. All scripts must stay together in the same directory — `dev-start.sh`
+locates templates and helpers relative to its own location.
 
 ```bash
-# Choose where to keep the scripts (they must stay together — dev-start.sh
-# locates templates and helpers relative to its own directory)
-SCRIPTS_DIR=~/kibana-dev-scripts
-mkdir -p "$SCRIPTS_DIR" ~/bin
-cp scripts/* "$SCRIPTS_DIR/"
-chmod +x "$SCRIPTS_DIR"/*.sh
-
-# Symlink the two entry points
-ln -s "$SCRIPTS_DIR/dev-start.sh" ~/dev-start.sh
-ln -s "$SCRIPTS_DIR/kbn-start.sh" ~/bin/kbn-start.sh
+# From the scripts/ folder, make the scripts executable
+chmod +x scripts/*.sh
 
 # Create your config (edit paths and ports to match your machine)
-cp "$SCRIPTS_DIR/kibana-dev.conf.example" ~/.kibana-dev.conf
+cp scripts/kibana-dev.conf.example ~/.kibana-dev.conf
 
-# Run the setup wizard
-~/dev-start.sh setup
+# Run the setup wizard (use the full path to wherever the skill is installed)
+scripts/dev-start.sh setup
+```
+
+For convenience, you can alias or symlink the main entry point:
+
+```bash
+# Option A: shell alias (add to ~/.zshrc)
+alias dev-start='/path/to/scripts/dev-start.sh'
+
+# Option B: symlink (if you prefer)
+ln -s /path/to/scripts/dev-start.sh ~/dev-start.sh
+ln -s /path/to/scripts/kbn-start.sh ~/bin/kbn-start.sh
 ```
 
 ## Important: always use `dev-start.sh`
