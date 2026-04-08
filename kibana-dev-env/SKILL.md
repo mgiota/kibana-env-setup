@@ -19,6 +19,30 @@ separate ports. It handles the full lifecycle: session creation, branch switchin
 server restart, credential renewal, health checks, data ingestion, and scoped code
 quality checks.
 
+## Installation
+
+The `scripts/` folder contains all the scripts and config templates needed to run
+this environment. To install on a new machine:
+
+```bash
+# Choose where to keep the scripts (they must stay together — dev-start.sh
+# locates templates and helpers relative to its own directory)
+SCRIPTS_DIR=~/kibana-dev-scripts
+mkdir -p "$SCRIPTS_DIR" ~/bin
+cp scripts/* "$SCRIPTS_DIR/"
+chmod +x "$SCRIPTS_DIR"/*.sh
+
+# Symlink the two entry points
+ln -s "$SCRIPTS_DIR/dev-start.sh" ~/dev-start.sh
+ln -s "$SCRIPTS_DIR/kbn-start.sh" ~/bin/kbn-start.sh
+
+# Create your config (edit paths and ports to match your machine)
+cp "$SCRIPTS_DIR/kibana-dev.conf.example" ~/.kibana-dev.conf
+
+# Run the setup wizard
+~/dev-start.sh setup
+```
+
 ## Important: always use `dev-start.sh`
 
 Never suggest raw tmux commands (`tmux attach`, `tmux send-keys`, etc.) to the

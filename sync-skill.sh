@@ -23,6 +23,17 @@ SKILL_SRC="$SCRIPT_DIR/kibana-dev-env"
 TEAM_REPO="${TEAM_REPO:-$HOME/Documents/Development/observability-dev}"
 SKILL_DEST="$TEAM_REPO/docs/actionable-obs/ai_helpers/skills/kibana-dev-env"
 
+# Scripts to include in the skill (source of truth is project root)
+SCRIPTS=(
+  dev-start.sh
+  kbn-start.sh
+  run-checks.sh
+  run-data.sh
+  kibana.dev.yml.template
+  kibana-dev.conf.example
+  kibana-remote-es.yml.example
+)
+
 # ── COLOURS ───────────────────────────────────────────────
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -46,39 +57,75 @@ fi
 # ── DRY RUN ───────────────────────────────────────────────
 if [[ "${1:-}" == "--dry-run" ]]; then
   echo "${BOLD}Dry run — comparing:${NC}"
-  echo "  Source: ${BLUE}$SKILL_SRC${NC}"
-  echo "  Dest:   ${BLUE}$SKILL_DEST${NC}"
+  echo "  Skill:   ${BLUE}$SKILL_SRC${NC}"
+  echo "  Scripts: ${BLUE}$SCRIPT_DIR/${NC} → ${BLUE}scripts/${NC}"
+  echo "  Dest:    ${BLUE}$SKILL_DEST${NC}"
   echo ""
 
   if [[ ! -d "$SKILL_DEST" ]]; then
     echo "${YELLOW}Destination does not exist yet — all files would be new.${NC}"
     echo ""
-    echo "Files to copy:"
+    echo "Skill files:"
     find "$SKILL_SRC" -type f | while read -r f; do
       echo "  ${GREEN}+${NC} ${f#$SKILL_SRC/}"
     done
+    echo ""
+    echo "Scripts:"
+    for s in "${SCRIPTS[@]}"; do
+      echo "  ${GREEN}+${NC} scripts/$s"
+    done
   else
-    # Use diff to show what would change
-    diff -rq "$SKILL_SRC" "$SKILL_DEST" 2>/dev/null && \
-      echo "${GREEN}✓ Already in sync — no changes needed.${NC}" || true
+    # Use diff to show what would change (skill content)
+    diff -rq "$SKILL_SRC" "$SKILL_DEST" --exclude scripts 2>/dev/null || true
+    # Compare scripts
+    for s in "${SCRIPTS[@]}"; do
+      if [[ ! -f "$SKILL_DEST/scripts/$s" ]]; then
+        echo "Only in $SCRIPT_DIR: scripts/$s (new)"
+      elif ! diff -q "$SCRIPT_DIR/$s" "$SKILL_DEST/scripts/$s" &>/dev/null; then
+        echo "Files differ: scripts/$s"
+      fi
+    done
+    # Check if everything is in sync
+    local_changes=false
+    diff -rq "$SKILL_SRC" "$SKILL_DEST" --exclude scripts &>/dev/null || local_changes=true
+    for s in "${SCRIPTS[@]}"; do
+      [[ -f "$SKILL_DEST/scripts/$s" ]] && diff -q "$SCRIPT_DIR/$s" "$SKILL_DEST/scripts/$s" &>/dev/null || local_changes=true
+    done
+    if [[ "$local_changes" == false ]]; then
+      echo "${GREEN}✓ Already in sync — no changes needed.${NC}"
+    fi
   fi
   exit 0
 fi
 
 # ── SYNC ──────────────────────────────────────────────────
 echo "${BOLD}Syncing skill to team repo${NC}"
-echo "  Source: ${BLUE}$SKILL_SRC${NC}"
-echo "  Dest:   ${BLUE}$SKILL_DEST${NC}"
+echo "  Skill:   ${BLUE}$SKILL_SRC${NC}"
+echo "  Scripts: ${BLUE}$SCRIPT_DIR/${NC} → ${BLUE}scripts/${NC}"
+echo "  Dest:    ${BLUE}$SKILL_DEST${NC}"
 echo ""
 
 # Create dest structure if needed
-mkdir -p "$SKILL_DEST"
+mkdir -p "$SKILL_DEST/scripts"
 
-# Copy all skill files (preserving directory structure)
-rsync -av --delete "$SKILL_SRC/" "$SKILL_DEST/"
+# Copy skill files (SKILL.md, references/) — delete stale files, but skip scripts/
+rsync -av --delete --exclude scripts "$SKILL_SRC/" "$SKILL_DEST/"
+
+# Clean scripts/ so removed scripts don't linger (|| true: glob fails in zsh if empty)
+rm -f "$SKILL_DEST"/scripts/* 2>/dev/null || true
+
+# Copy scripts from project root into scripts/ subfolder
+for s in "${SCRIPTS[@]}"; do
+  if [[ -f "$SCRIPT_DIR/$s" ]]; then
+    cp "$SCRIPT_DIR/$s" "$SKILL_DEST/scripts/$s"
+    echo "  scripts/$s"
+  else
+    echo "  ${YELLOW}⚠ Missing: $s${NC}"
+  fi
+done
 
 echo ""
-echo "${GREEN}✓ Skill synced.${NC}"
+echo "${GREEN}✓ Skill + scripts synced.${NC}"
 echo ""
 
 # Show git status in team repo
