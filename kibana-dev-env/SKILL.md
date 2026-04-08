@@ -32,20 +32,13 @@ chmod +x scripts/*.sh
 # Create your config (edit paths and ports to match your machine)
 cp scripts/kibana-dev.conf.example ~/.kibana-dev.conf
 
-# Run the setup wizard (use the full path to wherever the skill is installed)
+# Run the setup wizard
 scripts/dev-start.sh setup
 ```
 
-For convenience, you can alias or symlink the main entry point:
-
-```bash
-# Option A: shell alias (add to ~/.zshrc)
-alias dev-start='/path/to/scripts/dev-start.sh'
-
-# Option B: symlink (if you prefer)
-ln -s /path/to/scripts/dev-start.sh ~/dev-start.sh
-ln -s /path/to/scripts/kbn-start.sh ~/bin/kbn-start.sh
-```
+When running commands on behalf of the developer, always use the absolute path to
+`scripts/dev-start.sh` based on where this skill is installed. Do not ask the
+developer to set up aliases or symlinks — just use the full path directly.
 
 ## Important: always use `dev-start.sh`
 
