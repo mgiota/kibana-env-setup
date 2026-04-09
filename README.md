@@ -295,7 +295,7 @@ run-data.sh fleet-reset  # wipe all Fleet state (signing keys, policies, private
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml` at runtime, so it works with both local and remote ES. For remote clusters, it automatically reduces concurrency and payload size to avoid timeouts. Data ingestion always uses the `elastic` superuser (same password as in the config) since service accounts like `kibana_system_user` lack write permissions on data indices.
 
-**Synthetics:** `run-data.sh synthetics` creates a private location with Fleet Server + Elastic Agent on both local and remote ES. On local ES, it uses the Kibana `synthetics_private_location.js` script. On remote ES, it orchestrates Docker containers directly — Fleet Server (`kibana-dev-fleet-server`) and Elastic Agent (`kibana-dev-agent`) — with actual credentials from config, since the Kibana script hardcodes `changeme`. Tear down containers with `docker rm -f kibana-dev-fleet-server kibana-dev-agent`.
+**Synthetics:** `run-data.sh synthetics` creates a private location with Fleet Server + Elastic Agent using the Kibana `synthetics_private_location.js` script. Works on both local and remote ES — the script receives credentials via `--kibana-password` so it handles both cases.
 
 **Fleet reset:** If you see "Cannot read existing Message Signing Key pair" errors, the remote ES has stale Fleet state from a previous Kibana. Run `run-data.sh fleet-reset` to wipe all Fleet state (signing keys, agent policies, private locations), then restart Kibana so preconfiguration runs fresh.
 

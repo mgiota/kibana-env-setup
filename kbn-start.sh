@@ -70,10 +70,10 @@ ES_TRANSPORT_PORT=$((ES_PORT + 100))
 # This is more reliable than display-message which reports the *focused* pane
 # (which can differ from the executing pane when launched via tmux send-keys).
 TMUX_CURRENT_PANE="${TMUX_PANE}"
-TMUX_CURRENT_INDEX=$(tmux list-panes -F '#{pane_id} #{pane_index}' | awk -v id="$TMUX_CURRENT_PANE" '$1 == id { print $2 }')
+TMUX_CURRENT_INDEX=$(tmux list-panes -t "$TMUX_CURRENT_PANE" -F '#{pane_id} #{pane_index}' | awk -v id="$TMUX_CURRENT_PANE" '$1 == id { print $2 }')
 
 # Find the next pane (with a higher index) to use as the Kibana pane
-TMUX_TARGET_PANE=$(tmux list-panes -F '#{pane_index} #{pane_id}' | awk -v current="$TMUX_CURRENT_INDEX" '
+TMUX_TARGET_PANE=$(tmux list-panes -t "$TMUX_CURRENT_PANE" -F '#{pane_index} #{pane_id}' | awk -v current="$TMUX_CURRENT_INDEX" '
   $1 > current {
     if (target == "" || $1 < best) { target = $2; best = $1 }
   }
@@ -82,7 +82,7 @@ TMUX_TARGET_PANE=$(tmux list-panes -F '#{pane_index} #{pane_id}' | awk -v curren
 
 # Fallback: any pane that isn't the current one
 if [[ -z "${TMUX_TARGET_PANE:-}" ]]; then
-  TMUX_TARGET_PANE=$(tmux list-panes -F '#{pane_id}' | awk -v current="$TMUX_CURRENT_PANE" '
+  TMUX_TARGET_PANE=$(tmux list-panes -t "$TMUX_CURRENT_PANE" -F '#{pane_id}' | awk -v current="$TMUX_CURRENT_PANE" '
     $1 != current { print $1; exit }
   ')
 fi

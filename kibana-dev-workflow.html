@@ -1126,7 +1126,7 @@ elasticsearch.password: "changeme"</pre>
     <div class="card card-blue">
       <div class="card-label">run-data.sh synthetics</div>
       <p style="font-size:0.78rem;margin-bottom:8px">Creates a synthetics private location with Fleet Server + Elastic Agent. <strong style="color:var(--text-bright)">Works on both local and remote ES.</strong></p>
-      <p style="font-size:0.78rem">On local ES, uses <code>synthetics_private_location.js</code> which starts Fleet Server, enrolls an agent, and creates the private location. On remote ES, orchestrates Docker containers directly (Fleet Server + elastic-agent-complete) with proper credentials, updates Fleet Server host to local Docker, and enrolls the agent — so monitors actually run instead of staying in "Pending".</p>
+      <p style="font-size:0.78rem">Uses the Kibana <code>synthetics_private_location.js</code> script which starts Fleet Server, enrolls an agent, and creates the private location. Credentials are passed via <code>--kibana-password</code> so it works with both local and remote ES.</p>
     </div>
   </div>
 
