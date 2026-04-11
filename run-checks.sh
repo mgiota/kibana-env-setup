@@ -3,9 +3,10 @@
 #  run-checks.sh — scoped lint, type check, and jest runner
 #
 #  USAGE:
-#    run-checks lint        → eslint on changed TS/JS files
-#    run-checks typecheck   → tsc on changed plugins
-#    run-checks jest        → jest on changed plugins
+#    run-checks lint             → eslint on changed TS/JS files
+#    run-checks lint --fix       → eslint auto-fix on changed TS/JS files
+#    run-checks typecheck        → tsc on changed plugins
+#    run-checks jest             → jest on changed plugins
 #
 #  Scope: all files changed on the current branch vs upstream/main
 # ============================================================
@@ -41,7 +42,9 @@ case "$1" in
     if [[ -z "$TSFILES" ]]; then
       printf "\n✅  No changed TS/JS files to lint.\n"
     else
-      echo "$TSFILES" | xargs node scripts/eslint
+      LINT_ARGS=()
+      [[ "$2" == "--fix" ]] && LINT_ARGS+=(--fix)
+      echo "$TSFILES" | xargs node scripts/eslint "${LINT_ARGS[@]}"
     fi
     ;;
 
