@@ -1453,7 +1453,7 @@ offer_cluster_create() {
   echo ""
   echo "${BLUE}→${NC} Creating cluster..."
   local create_output
-  create_output=$($OBLT_CLUSTER_CREATE_CMD 2>&1)
+  create_output=$(eval "$OBLT_CLUSTER_CREATE_CMD" 2>&1)
   local create_rc=$?
 
   # Show the output so the user can see the GitHub PR link and Slack notice
