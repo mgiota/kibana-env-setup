@@ -131,5 +131,70 @@ it "uncomments existing commented entry"
   assert_file_contains "$KIBANA_DEV_CONF" 'OBLT_CLUSTER_NAME="real-cluster"'
 
 
+# ══════════════════════════════════════════════════════════
+#  CLUSTER HEALTH CHECK
+# ══════════════════════════════════════════════════════════
+
+describe "renew — cluster health check"
+
+# Helper: create a mock curl that returns a specific HTTP status code
+mock_curl() {
+  local status_code="$1"
+  cat > "$MOCK_BIN/curl" <<CURLMOCK
+#!/usr/bin/env bash
+# Mock curl — returns a fixed HTTP status code
+# Only respond to the -w "%{http_code}" pattern
+for arg in "\$@"; do
+  if [[ "\$arg" == "%{http_code}" ]]; then
+    echo "$status_code"
+    exit 0
+  fi
+done
+exit 0
+CURLMOCK
+  chmod +x "$MOCK_BIN/curl"
+}
+
+# Helper: remove curl mock so real curl isn't shadowed in later tests
+unmock_curl() {
+  rm -f "$MOCK_BIN/curl"
+}
+
+it "reports cluster reachable on HTTP 200"
+  setup_renew_env
+  mock_curl 200
+  output=$(cmd_renew --cluster-name healthy-cluster 2>&1)
+  assert_contains "$output" "reachable"
+  unmock_curl
+
+it "reports cluster reachable on HTTP 401 (auth required = ES is up)"
+  setup_renew_env
+  mock_curl 401
+  output=$(cmd_renew --cluster-name auth-cluster 2>&1)
+  assert_contains "$output" "reachable"
+  unmock_curl
+
+it "reports cluster unreachable on HTTP 000 (timeout/DNS failure)"
+  setup_renew_env
+  mock_curl 000
+  output=$(cmd_renew --cluster-name dead-cluster 2>&1)
+  assert_contains "$output" "unreachable"
+  unmock_curl
+
+it "reports unhealthy on non-200/401 status (e.g. 503)"
+  setup_renew_env
+  mock_curl 503
+  output=$(cmd_renew --cluster-name sick-cluster 2>&1)
+  assert_contains "$output" "unhealthy"
+  unmock_curl
+
+it "shows destroy command for unhealthy cluster"
+  setup_renew_env
+  mock_curl 503
+  output=$(cmd_renew --cluster-name sick-cluster 2>&1)
+  assert_contains "$output" "oblt-cli cluster destroy"
+  unmock_curl
+
+
 # ── Print results ─────────────────────────────────────────
 print_summary

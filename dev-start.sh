@@ -1663,6 +1663,31 @@ cmd_renew() {
     fi
   fi
 
+  # ── Health check: verify the remote ES cluster is actually reachable ──
+  local es_host_url
+  es_host_url=$(grep -E "^ *hosts:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | sed 's|.*hosts: *||' | tr -d '"' | tr -d ' ')
+
+  if [[ -n "$es_host_url" ]]; then
+    local es_http
+    es_http=$(curl -s -o /dev/null -w "%{http_code}" "$es_host_url" --max-time 10 2>/dev/null)
+    [[ -z "$es_http" ]] && es_http="000"
+
+    if [[ "$es_http" == "200" || "$es_http" == "401" ]]; then
+      echo "${GREEN}✓${NC} Cluster health: reachable (HTTP $es_http)"
+    else
+      if [[ "$es_http" == "000" ]]; then
+        echo "${RED}✗${NC} Cluster health: ${RED}unreachable${NC} — $es_host_url"
+      else
+        echo "${YELLOW}⚠${NC}  Cluster health: ${YELLOW}unhealthy${NC} (HTTP $es_http) — $es_host_url"
+      fi
+      echo ""
+      echo "  The cluster may be down or destroyed."
+      echo "  Check with: ${GREEN}oblt-cli cluster list${NC}"
+      echo "  Destroy:    ${GREEN}oblt-cli cluster destroy --cluster-name $cluster_name${NC}"
+      echo "  Create new: ${GREEN}./dev-start.sh renew${NC}  (after destroying the old one)"
+    fi
+  fi
+
   echo ""
   echo "${GREEN}Done!${NC} Use ${GREEN}--remote${NC} to connect:"
   echo "  ${GREEN}./dev-start.sh switch <branch> --remote${NC}"
