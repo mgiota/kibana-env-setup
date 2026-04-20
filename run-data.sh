@@ -5,7 +5,7 @@
 #  USAGE:
 #    run-data slo          → ingest SLO fake_stack data
 #    run-data synthetics   → create synthetics private location
-#    run-data fleet-reset  → wipe all Fleet state (signing keys, policies, private locations)
+#    run-data fleet-reset  → wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
 #
 #  Reads Kibana port and ES host from config/kibana.dev.yml automatically.
 #  Works with both local ES (localhost) and remote ES (oblt-cli / cloud).
@@ -130,11 +130,28 @@ case "$1" in
     wait_for_kibana
     local KIBANA_URL="http://localhost:${KIBANA_PORT}"
     local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
+    local ES_AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
 
     echo "🧹  Fleet reset — clearing all Fleet state"
     echo ""
 
-    # 1. Delete synthetics private locations (via Kibana API — works reliably)
+    # 1. Delete all synthetics monitors (via Kibana API)
+    echo "▶ Deleting synthetics monitors..."
+    local monitors_response monitor_count=0
+    monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+    if echo "$monitors_response" | grep -q '"id"'; then
+      local monitor_ids
+      monitor_ids=$(echo "$monitors_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
+      for mid in $monitor_ids; do
+        curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
+          -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+        monitor_count=$((monitor_count + 1))
+      done
+    fi
+    echo "   Deleted $monitor_count monitor(s)"
+
+    # 2. Delete synthetics private locations (via Kibana API)
     echo "▶ Deleting synthetics private locations..."
     local locations loc_count=0
     locations=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
@@ -150,7 +167,26 @@ case "$1" in
     fi
     echo "   Deleted $loc_count private location(s)"
 
-    # 2. Delete Fleet agent policies via Fleet API
+    # 3. Force-unenroll all Fleet agents (via Fleet API)
+    echo "▶ Unenrolling Fleet agents..."
+    local all_agents_response agent_count=0
+    all_agents_response=$(curl -s "$KIBANA_URL/api/fleet/agents?perPage=1000" \
+      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+    if echo "$all_agents_response" | grep -q '"id"'; then
+      local all_agent_ids
+      all_agent_ids=$(echo "$all_agents_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
+      for aid in $all_agent_ids; do
+        curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+          -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
+        agent_count=$((agent_count + 1))
+      done
+    fi
+    echo "   Unenrolled $agent_count agent(s)"
+
+    # 4. Delete Fleet agent policies (via Fleet API)
+    #    Use force:true to also delete managed/preconfigured policies
+    #    (e.g. fleet-server-policy from kibana.dev.yml xpack.fleet.agentPolicies)
     echo "▶ Deleting Fleet agent policies..."
     local policies_response policy_count=0
     policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=100" \
@@ -159,28 +195,15 @@ case "$1" in
       local policy_ids
       policy_ids=$(echo "$policies_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
       for pid in $policy_ids; do
-        # Force-unenroll any agents on this policy first
-        local agents_response
-        agents_response=$(curl -s "$KIBANA_URL/api/fleet/agents?kuery=policy_id:$pid&perPage=100" \
-          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-        if echo "$agents_response" | grep -q '"id"'; then
-          local agent_ids
-          agent_ids=$(echo "$agents_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
-          for aid in $agent_ids; do
-            curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
-              -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-              -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
-          done
-        fi
         curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies/delete" \
           -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-          -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\"}" > /dev/null 2>&1
+          -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\",\"force\":true}" > /dev/null 2>&1
         policy_count=$((policy_count + 1))
       done
     fi
     echo "   Deleted $policy_count agent policy/policies"
 
-    # 3. Delete Fleet internal state from ES system indices
+    # 5. Delete Fleet internal state from ES system indices
     #    Signing keys, preconfiguration records, and other hidden Fleet types live in
     #    .kibana_ingest_* — a restricted system index that can only be written through
     #    Kibana's internal ES client (Dev Tools console). External curl calls are blocked.
@@ -212,6 +235,24 @@ case "$1" in
     else
       echo "   ⚠ Skipped — Fleet signing keys and preconfig records may still exist."
       echo "     Preconfiguration may not run on restart."
+    fi
+
+    # 6. Delete .fleet-* ES indices (final sweep for any leftover data)
+    echo ""
+    echo "▶ Deleting .fleet-* ES indices..."
+    local fleet_indices
+    fleet_indices=$(curl -s "$ES_HOST/_cat/indices/.fleet*?h=index" \
+      -u "$ES_AUTH" 2>/dev/null | tr -d ' ')
+    if [[ -n "$fleet_indices" ]]; then
+      local idx_count=0
+      for idx in ${(f)fleet_indices}; do
+        [[ -z "$idx" ]] && continue
+        curl -s -X DELETE "$ES_HOST/$idx" -u "$ES_AUTH" > /dev/null 2>&1
+        idx_count=$((idx_count + 1))
+      done
+      echo "   Deleted $idx_count .fleet-* index/indices"
+    else
+      echo "   No .fleet-* indices found"
     fi
 
     echo ""

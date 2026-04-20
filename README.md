@@ -294,14 +294,14 @@ The scripts window has pre-populated commands for data ingestion. Press Enter wh
 ```bash
 run-data.sh slo          # ingest SLO fake_stack data via data_forge.js
 run-data.sh synthetics   # create synthetics private location (Fleet Server + Agent)
-run-data.sh fleet-reset  # wipe all Fleet state (signing keys, policies, private locations)
+run-data.sh fleet-reset  # wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml` at runtime, so it works with both local and remote ES. For remote clusters, it automatically reduces concurrency and payload size to avoid timeouts. Data ingestion always uses the `elastic` superuser (same password as in the config) since service accounts like `kibana_system_user` lack write permissions on data indices.
 
 **Synthetics:** `run-data.sh synthetics` creates a private location with Fleet Server + Elastic Agent using the Kibana `synthetics_private_location.js` script. Works on both local and remote ES — the script receives credentials via `--kibana-password` so it handles both cases.
 
-**Fleet reset:** If you see "Cannot read existing Message Signing Key pair" errors, the remote ES has stale Fleet state from a previous Kibana. Run `run-data.sh fleet-reset` to wipe all Fleet state (signing keys, agent policies, private locations), then restart Kibana so preconfiguration runs fresh.
+**Fleet reset:** If you see "Cannot read existing Message Signing Key pair" errors, the remote ES has stale Fleet state from a previous Kibana. Run `run-data.sh fleet-reset` to wipe all Fleet state — it deletes synthetics monitors, private locations, Fleet agents, agent policies, Fleet system index data, and `.fleet-*` ES indices — then restart Kibana so preconfiguration runs fresh.
 
 ---
 

@@ -1259,7 +1259,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-group-header" style="color:var(--purple)">helper scripts</div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh slo</span><span class="cmd-desc">ingest SLO fake_stack data via data_forge.js — waits for Kibana, reads creds from config</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location with Fleet Server + Agent (local ES via script, remote ES via Docker containers)</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh fleet-reset</span><span class="cmd-desc">wipe all Fleet state (signing keys, policies, private locations) — restart Kibana after</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh fleet-reset</span><span class="cmd-desc">wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices) — restart Kibana after</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh jest</span><span class="cmd-desc">jest per changed plugin (scoped to branch)</span></div>

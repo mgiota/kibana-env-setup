@@ -221,7 +221,7 @@ the developer to navigate there manually.
 ```bash
 run-data slo          # Ingest SLO fake_stack data via data_forge.js
 run-data synthetics   # Create synthetics private location (Fleet Server + Agent)
-run-data fleet-reset  # Wipe all Fleet state and private locations, then restart
+run-data fleet-reset  # Wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,

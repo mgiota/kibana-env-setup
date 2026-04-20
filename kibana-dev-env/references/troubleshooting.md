@@ -114,5 +114,6 @@ decrypt the existing signing keys.
 run-data fleet-reset
 ~/dev-start.sh restart main   # or feat, or <branch>
 ```
-This deletes the stale signing keys, agent policies, and private locations from ES.
+This deletes synthetics monitors, private locations, Fleet agents, agent policies,
+Fleet system index data, and `.fleet-*` ES indices — a full wipe.
 On restart, Fleet creates fresh signing keys and preconfiguration runs cleanly.
