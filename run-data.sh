@@ -205,36 +205,26 @@ case "$1" in
 
     # 5. Delete Fleet internal state from ES system indices
     #    Signing keys, preconfiguration records, and other hidden Fleet types live in
-    #    .kibana_ingest_* — a restricted system index that can only be written through
-    #    Kibana's internal ES client (Dev Tools console). External curl calls are blocked.
-    #    We open Dev Tools in the browser and run the cleanup automatically.
+    #    .kibana_ingest_* — a restricted system index. Direct ES curl calls are blocked,
+    #    but Kibana's console proxy API (/api/console/proxy) uses the internal ES client
+    #    and bypasses the restriction — same mechanism Dev Tools uses under the hood.
     echo ""
-    echo "▶ Clearing Fleet system index data via Dev Tools..."
-    local dev_tools_query='POST .kibana_ingest_*/_delete_by_query\n{"query":{"prefix":{"type":"fleet"}}}'
-    local encoded_query
-    encoded_query=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$dev_tools_query'''))" 2>/dev/null)
-    local dev_tools_url="http://localhost:${KIBANA_PORT}/app/dev_tools#/console?load_from=data:text/plain,${encoded_query}"
-
-    # Try to open Dev Tools in the browser automatically
-    if command -v open &>/dev/null; then
-      open "$dev_tools_url" 2>/dev/null
-      echo "   ⚠ Dev Tools opened in your browser."
-      echo "   Press ▶ (Ctrl+Enter) to run the delete query, then come back here."
-      echo ""
-      echo "   If it didn't open, run this manually in Dev Tools (http://localhost:${KIBANA_PORT}/app/dev_tools#/console):"
+    echo "▶ Clearing Fleet system index data..."
+    local proxy_response
+    proxy_response=$(curl -s -X POST \
+      "$KIBANA_URL/api/console/proxy?path=.kibana_ingest_*%2F_delete_by_query&method=POST" \
+      -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+      -u "$AUTH" \
+      -d '{"query":{"prefix":{"type":"fleet"}}}' 2>/dev/null)
+    if echo "$proxy_response" | grep -q '"deleted"'; then
+      local deleted_count
+      deleted_count=$(echo "$proxy_response" | grep -o '"deleted":[0-9]*' | sed 's/"deleted"://')
+      echo "   Deleted $deleted_count Fleet record(s) from .kibana_ingest_*"
     else
-      echo "   Run this in Dev Tools (http://localhost:${KIBANA_PORT}/app/dev_tools#/console):"
-    fi
-    echo ""
-    echo "     POST .kibana_ingest_*/_delete_by_query"
-    echo '     {"query":{"prefix":{"type":"fleet"}}}'
-    echo ""
-    read -r "?   Press Enter once you've run it (or 's' to skip): " confirm
-    if [[ "$confirm" != "s" ]]; then
-      echo "   ✅  Continuing..."
-    else
-      echo "   ⚠ Skipped — Fleet signing keys and preconfig records may still exist."
-      echo "     Preconfiguration may not run on restart."
+      echo "   ⚠ Could not clear .kibana_ingest_* — Fleet signing keys may still exist."
+      echo "     Run manually in Dev Tools (http://localhost:${KIBANA_PORT}/app/dev_tools#/console):"
+      echo "     POST .kibana_ingest_*/_delete_by_query"
+      echo '     {"query":{"prefix":{"type":"fleet"}}}'
     fi
 
     # 6. Delete .fleet-* ES indices (final sweep for any leftover data)
