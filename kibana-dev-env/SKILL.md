@@ -194,13 +194,23 @@ When remote ES credentials expire or the cluster has been destroyed:
 
 `renew` auto-detects the cluster name from `oblt-cli cluster list`, fetches
 credentials via `oblt-cli cluster secrets kibana-config`, writes to
-`~/.kibana-remote-es.yml`, and regenerates `kibana.dev.yml` for active remote
-sessions if credentials changed.
+`~/.kibana-remote-es.yml`, and regenerates `kibana.dev.yml` for compatible
+remote sessions if credentials changed. Sessions whose Kibana version doesn't
+match the new cluster's ES version are skipped — they keep their existing
+credentials so they remain functional.
 
 If no cluster exists (expired and destroyed), `renew` offers to create a new one
 via `oblt-cli cluster create`. The create command is configurable in
 `~/.kibana-dev.conf` via `OBLT_CLUSTER_CREATE_CMD`. Creation is async — run
 `renew` again after the Slack notification confirms the cluster is ready.
+
+`renew` also detects **version mismatches** between the remote ES cluster and
+local Kibana (e.g. ES 9.4 vs Kibana 9.5 after a version bump on `main`). When
+a mismatch is found, it checks `oblt-cli cluster list` for other existing
+clusters and offers to switch to one if available. If no other clusters exist,
+it offers to destroy and replace. If some sessions still match the old ES
+version (e.g. a hotfix branch on 9.4), it shows which sessions are affected
+and adjusts options accordingly — prioritising switching to an existing cluster.
 
 ## Data Ingestion
 

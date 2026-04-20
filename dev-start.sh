@@ -200,6 +200,16 @@ generate_remote_kibana_dev_yml() {
       skipping { match($0,/^[[:space:]]*/); if(RLENGTH>lvl){next} else {skipping=0} }
       {print}
     ' "$REMOTE_ES_CONFIG"
+    # Ensure ignoreVersionMismatch is present (oblt-cli output may not include it)
+    if ! grep -q "ignoreVersionMismatch" "$REMOTE_ES_CONFIG" 2>/dev/null; then
+      echo "elasticsearch.ignoreVersionMismatch: true"
+    fi
+    if ! grep -q "versionResolution" "$REMOTE_ES_CONFIG" 2>/dev/null; then
+      echo "server.versioned.versionResolution: oldest"
+    fi
+    if ! grep -q "oas.enabled" "$REMOTE_ES_CONFIG" 2>/dev/null; then
+      echo "server.oas.enabled: true"
+    fi
     echo ""
     # Append Fleet config from template (everything after the ES connection block)
     # Substitute placeholders with remote values
@@ -251,6 +261,42 @@ get_es_display() {
   fi
   echo ":unknown"
 }
+# ── VERSION HELPERS ───────────────────────────────────────
+
+# Get the ES version from a remote cluster (authenticated request)
+# Usage: get_remote_es_version <es_host_url> <remote_es_config_file>
+# Prints the major.minor.patch version string, or empty on failure
+get_remote_es_version() {
+  local es_host_url="$1" config_file="$2"
+  [[ -z "$es_host_url" || ! -f "$config_file" ]] && return
+
+  local es_user es_pass
+  es_user=$(grep -E "^ *username:" "$config_file" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+  es_pass=$(grep -E "^ *password:" "$config_file" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+  [[ -z "$es_user" || -z "$es_pass" ]] && return
+
+  local response
+  response=$(curl -s -u "${es_user}:${es_pass}" "$es_host_url" --max-time 10 2>/dev/null)
+  [[ -z "$response" ]] && return
+
+  echo "$response" | sed -n 's/.*"number" *: *"\([^"]*\)".*/\1/p' | head -1
+}
+
+# Get the local Kibana version from package.json
+# Usage: get_kibana_version <kibana_dir>
+# Prints the major.minor.patch version string, or empty on failure
+get_kibana_version() {
+  local dir="$1"
+  local pkg="$dir/package.json"
+  [[ ! -f "$pkg" ]] && return
+  sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' "$pkg" | head -1
+}
+
+# Extract major.minor from a version string (e.g. "9.5.0" → "9.5")
+major_minor() {
+  echo "${1%.*}"
+}
+
 # ── END PORT HELPERS ──────────────────────────────────────
 
 
@@ -702,6 +748,18 @@ cmd_status() {
       local es_http
       es_http=$(curl -s -o /dev/null -w "%{http_code}" "$es_host" --max-time 5 2>/dev/null)
       [[ -z "$es_http" ]] && es_http="000"
+      # Some Elastic Cloud deployments return 503 for unauthenticated requests.
+      # Fall back to an authenticated request before declaring an error.
+      if [[ "$es_http" != "200" && "$es_http" != "401" && "$es_http" != "000" ]]; then
+        local auth_user auth_pass
+        auth_user=$(grep -E "^ *username:" "$yml" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+        auth_pass=$(grep -E "^ *password:" "$yml" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+        if [[ -n "$auth_user" && -n "$auth_pass" ]]; then
+          local auth_http
+          auth_http=$(curl -s -o /dev/null -w "%{http_code}" -u "${auth_user}:${auth_pass}" "$es_host" --max-time 5 2>/dev/null)
+          [[ "$auth_http" == "200" ]] && es_http="200"
+        fi
+      fi
       if [[ "$es_http" == "200" ]]; then
         es_status="up" ; es_color="$GREEN"
       elif [[ "$es_http" == "401" ]]; then
@@ -1485,6 +1543,200 @@ offer_cluster_create() {
   return 0
 }
 
+# Helper: destroy an old cluster and create a new one
+# Usage: offer_cluster_replace <cluster_name>
+# Returns 0 if creation was initiated, 1 otherwise
+offer_cluster_replace() {
+  local old_cluster="$1"
+
+  echo ""
+  echo "${BLUE}→${NC} Destroying old cluster '${old_cluster}'..."
+  if ! oblt-cli cluster destroy --cluster-name "$old_cluster" 2>&1; then
+    echo "${RED}Error:${NC} Failed to destroy cluster '$old_cluster'."
+    echo "  You may need to destroy it manually:"
+    echo "    ${GREEN}oblt-cli cluster destroy --cluster-name $old_cluster${NC}"
+    echo ""
+  else
+    echo "${GREEN}✓${NC} Cluster '$old_cluster' destroyed."
+    echo ""
+  fi
+
+  offer_cluster_create
+  return $?
+}
+
+# Helper: check version mismatch between remote ES and local Kibana sessions
+# Detects compatible sessions and offers to replace or add a cluster
+# Usage: handle_version_mismatch <es_version> <cluster_name> <es_host_url>
+# Returns 0 if user action was taken, 1 if skipped
+handle_version_mismatch() {
+  local es_version="$1" cluster_name="$2" es_host_url="$3"
+  local es_mm
+  es_mm=$(major_minor "$es_version")
+
+  echo "${YELLOW}⚠${NC}  Version mismatch: ES is ${BOLD}$es_version${NC} but local Kibana needs a matching major.minor."
+  echo ""
+
+  # Collect all remote sessions and their Kibana versions
+  local compatible_sessions=()
+  local all_sessions_mismatched=true
+
+  # Check kibana-main
+  if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
+     grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
+    local main_kbn_ver main_kbn_mm
+    main_kbn_ver=$(get_kibana_version "$KIBANA_MAIN_DIR")
+    main_kbn_mm=$(major_minor "$main_kbn_ver")
+    if [[ -n "$main_kbn_ver" && "$main_kbn_mm" == "$es_mm" ]]; then
+      compatible_sessions+=("kibana-main (Kibana $main_kbn_ver — compatible)")
+      all_sessions_mismatched=false
+    fi
+  fi
+
+  # Check kibana-feat
+  if [[ -f "$STATE_FILE" ]]; then
+    source "$STATE_FILE"
+    if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
+       grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
+      local feat_kbn_ver feat_kbn_mm feat_name
+      feat_kbn_ver=$(get_kibana_version "$FEAT_DIR")
+      feat_kbn_mm=$(major_minor "$feat_kbn_ver")
+      feat_name=$(basename "$FEAT_DIR")
+      if [[ -n "$feat_kbn_ver" && "$feat_kbn_mm" == "$es_mm" ]]; then
+        compatible_sessions+=("kibana-feat/$feat_name (Kibana $feat_kbn_ver — compatible)")
+        all_sessions_mismatched=false
+      fi
+    fi
+  fi
+
+  # Check hotfix worktrees
+  # Note: declare locals before the loop — zsh prints values if `local` is
+  # called again on an already-declared variable (second iteration onwards).
+  local wt_dir wt_name wt_kbn_ver wt_kbn_mm
+  for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+    [[ -f "$yml" ]] || continue
+    grep -q "Remote ES" "$yml" 2>/dev/null || continue
+    wt_dir=$(dirname "$(dirname "$yml")")
+    wt_name=$(basename "$wt_dir")
+    # Skip feat worktree (already handled above)
+    [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
+    wt_kbn_ver=$(get_kibana_version "$wt_dir")
+    wt_kbn_mm=$(major_minor "$wt_kbn_ver")
+    if [[ -n "$wt_kbn_ver" && "$wt_kbn_mm" == "$es_mm" ]]; then
+      compatible_sessions+=("kibana-$wt_name (Kibana $wt_kbn_ver — compatible)")
+      all_sessions_mismatched=false
+    fi
+  done
+
+  # Check if other clusters already exist (user may have created one manually)
+  local other_clusters=()
+  if command -v oblt-cli &>/dev/null; then
+    local all_clusters
+    all_clusters=$(oblt-cli cluster list 2>&1 | sed -n '/CLUSTER NAME/,$ p' | tail -n +2 | sed 's/[^a-zA-Z0-9 _-]/ /g' | awk 'NF && $1 ~ /[a-z]/ {print $1}')
+    while IFS= read -r c; do
+      [[ -z "$c" ]] && continue
+      # Exclude the current (mismatched) cluster
+      [[ "$c" == "$cluster_name" ]] && continue
+      other_clusters+=("$c")
+    done <<< "$all_clusters"
+  fi
+
+  # Case 1 & 2: No compatible sessions — safe to destroy + create
+  if [[ "$all_sessions_mismatched" == true ]]; then
+    if [[ ${#other_clusters[@]} -gt 0 ]]; then
+      echo "  Other clusters available:"
+      local idx=1
+      for c in "${other_clusters[@]}"; do
+        echo "    ${GREEN}${idx})${NC} Switch to ${BOLD}$c${NC}"
+        (( idx++ ))
+      done
+      echo "    ${GREEN}${idx})${NC} Destroy old cluster and create a new one"
+      (( idx++ ))
+      echo "    ${GREEN}${idx})${NC} Skip — do nothing"
+      echo ""
+      printf "  Choice [1-${idx}]: "
+      read -r choice
+      if [[ "$choice" =~ ^[0-9]+$ && "$choice" -ge 1 && "$choice" -le ${#other_clusters[@]} ]]; then
+        local selected="${other_clusters[$((choice))]}"
+        echo ""
+        echo "${BLUE}→${NC} Switching to cluster '${BOLD}$selected${NC}'..."
+        save_cluster_name_to_conf "$selected"
+        # Re-run renew with the new cluster to fetch its credentials
+        cmd_renew --cluster-name "$selected"
+        return $?
+      elif [[ "$choice" == "$(( ${#other_clusters[@]} + 1 ))" ]]; then
+        offer_cluster_replace "$cluster_name"
+        return $?
+      fi
+      echo "  Skipped."
+      return 1
+    else
+      printf "  Destroy old cluster and create a new one? [y/N] "
+      read -r reply
+      if [[ "$reply" == [yY] ]]; then
+        offer_cluster_replace "$cluster_name"
+        return $?
+      fi
+      echo "  Skipped."
+      return 1
+    fi
+  fi
+
+  # Case 3: Some sessions still match the old cluster
+  echo "  These sessions still use this cluster (ES $es_version):"
+  for s in "${compatible_sessions[@]}"; do
+    echo "    ${BLUE}↳${NC} $s"
+  done
+  echo ""
+  echo "  Options:"
+  local opt_num=1
+  if [[ ${#other_clusters[@]} -gt 0 ]]; then
+    for c in "${other_clusters[@]}"; do
+      echo "    ${GREEN}${opt_num})${NC} Switch to ${BOLD}$c${NC}  ${GREEN}[recommended]${NC}"
+      (( opt_num++ ))
+    done
+    echo "    ${GREEN}${opt_num})${NC} Create a ${BOLD}new${NC} cluster and keep the old one"
+    (( opt_num++ ))
+  else
+    echo "    ${GREEN}${opt_num})${NC} Create a ${BOLD}new${NC} cluster and keep the old one  ${GREEN}[recommended]${NC}"
+    (( opt_num++ ))
+  fi
+  local destroy_num=$opt_num
+  echo "    ${GREEN}${opt_num})${NC} Destroy old cluster and create new (breaks sessions above)"
+  (( opt_num++ ))
+  local skip_num=$opt_num
+  echo "    ${GREEN}${opt_num})${NC} Skip — do nothing"
+  echo ""
+  printf "  Choice [1-${opt_num}]: "
+  read -r choice
+  # Handle switch-to-existing-cluster choices
+  if [[ ${#other_clusters[@]} -gt 0 && "$choice" =~ ^[0-9]+$ && \
+        "$choice" -ge 1 && "$choice" -le ${#other_clusters[@]} ]]; then
+    local selected="${other_clusters[$((choice))]}"
+    echo ""
+    echo "${BLUE}→${NC} Switching to cluster '${BOLD}$selected${NC}'..."
+    save_cluster_name_to_conf "$selected"
+    cmd_renew --cluster-name "$selected"
+    return $?
+  fi
+  # Handle create / destroy / skip
+  local create_num=$(( ${#other_clusters[@]} + 1 ))
+  case "$choice" in
+    "$create_num")
+      offer_cluster_create
+      return $?
+      ;;
+    "$destroy_num")
+      offer_cluster_replace "$cluster_name"
+      return $?
+      ;;
+    *)
+      echo "  Skipped."
+      return 1
+      ;;
+  esac
+}
+
 # Helper: save/update OBLT_CLUSTER_NAME in ~/.kibana-dev.conf
 save_cluster_name_to_conf() {
   local name="$1"
@@ -1616,14 +1868,40 @@ cmd_renew() {
   # Regenerate kibana.dev.yml for active remote sessions (only if credentials changed)
   if [[ "$credentials_changed" == true ]]; then
     local regenerated=()
+    local skipped=()
+
+    # Get the new cluster's ES version for compatibility checks.
+    # If we can't determine it, regenerate all sessions (safe default — same as before).
+    local new_es_host new_es_ver new_es_mm
+    new_es_host=$(grep -E "^ *hosts:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | sed 's|.*hosts: *||' | tr -d '"' | tr -d ' ')
+    new_es_ver=$(get_remote_es_version "$new_es_host" "$REMOTE_ES_CONFIG")
+    new_es_mm=$(major_minor "$new_es_ver")
+
+    # Helper: check if a session's Kibana version is compatible with the new cluster
+    is_session_compatible() {
+      local session_dir="$1"
+      # If we couldn't get the ES version, assume compatible (regenerate all)
+      [[ -z "$new_es_ver" ]] && return 0
+      local kbn_ver kbn_mm
+      kbn_ver=$(get_kibana_version "$session_dir")
+      [[ -z "$kbn_ver" ]] && return 0  # can't determine — assume compatible
+      kbn_mm=$(major_minor "$kbn_ver")
+      [[ "$kbn_mm" == "$new_es_mm" ]]
+    }
 
     # Check kibana-main
     if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
        grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
-      local main_port
-      main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
-      generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
-      regenerated+=("kibana-main")
+      if is_session_compatible "$KIBANA_MAIN_DIR"; then
+        local main_port
+        main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+        generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
+        regenerated+=("kibana-main")
+      else
+        local skip_ver
+        skip_ver=$(get_kibana_version "$KIBANA_MAIN_DIR")
+        skipped+=("kibana-main (Kibana ${skip_ver:-unknown})")
+      fi
     fi
 
     # Check kibana-feat
@@ -1631,25 +1909,38 @@ cmd_renew() {
       source "$STATE_FILE"
       if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
          grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
-        local feat_port
-        feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
-        generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
-        regenerated+=("kibana-feat")
+        if is_session_compatible "$FEAT_DIR"; then
+          local feat_port
+          feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+          generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
+          regenerated+=("kibana-feat")
+        else
+          local skip_ver_feat
+          skip_ver_feat=$(get_kibana_version "$FEAT_DIR")
+          skipped+=("kibana-feat (Kibana ${skip_ver_feat:-unknown})")
+        fi
       fi
     fi
 
     # Check hotfix sessions
+    # Note: declare locals before the loop — zsh prints values if `local` is
+    # called again on an already-declared variable (second iteration onwards).
+    local wt_dir wt_name wt_port wt_skip_ver
     for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
       [[ -f "$yml" ]] || continue
       grep -q "Remote ES" "$yml" 2>/dev/null || continue
-      local wt_dir wt_name wt_port
       wt_dir=$(dirname "$(dirname "$yml")")
       wt_name=$(basename "$wt_dir")
       # Skip feat worktree (already handled above)
       [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
-      wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
-      generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
-      regenerated+=("kibana-$wt_name")
+      if is_session_compatible "$wt_dir"; then
+        wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+        generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
+        regenerated+=("kibana-$wt_name")
+      else
+        wt_skip_ver=$(get_kibana_version "$wt_dir")
+        skipped+=("kibana-$wt_name (Kibana ${wt_skip_ver:-unknown})")
+      fi
     done
 
     if [[ ${#regenerated[@]} -gt 0 ]]; then
@@ -1660,6 +1951,14 @@ cmd_renew() {
       done
       echo ""
       echo "  Run ${GREEN}./dev-start.sh restart <session>${NC} to pick up the new credentials."
+    fi
+
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+      echo ""
+      echo "${YELLOW}⚠${NC}  Skipped sessions incompatible with new cluster (ES ${new_es_ver}):"
+      for s in "${skipped[@]}"; do
+        echo "  ${BLUE}↳${NC} $s"
+      done
     fi
   fi
 
@@ -1672,8 +1971,49 @@ cmd_renew() {
     es_http=$(curl -s -o /dev/null -w "%{http_code}" "$es_host_url" --max-time 10 2>/dev/null)
     [[ -z "$es_http" ]] && es_http="000"
 
+    # Some Elastic Cloud deployments return 503 for unauthenticated requests
+    # instead of 401. Fall back to an authenticated request before giving up.
+    if [[ "$es_http" != "200" && "$es_http" != "401" && "$es_http" != "000" ]]; then
+      local es_user es_pass
+      es_user=$(grep -E "^ *username:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+      es_pass=$(grep -E "^ *password:" "$REMOTE_ES_CONFIG" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' | tr -d ' ')
+      if [[ -n "$es_user" && -n "$es_pass" ]]; then
+        local es_http_auth
+        es_http_auth=$(curl -s -o /dev/null -w "%{http_code}" -u "${es_user}:${es_pass}" "$es_host_url" --max-time 10 2>/dev/null)
+        if [[ "$es_http_auth" == "200" ]]; then
+          es_http="200"
+        fi
+      fi
+    fi
+
     if [[ "$es_http" == "200" || "$es_http" == "401" ]]; then
       echo "${GREEN}✓${NC} Cluster health: reachable (HTTP $es_http)"
+
+      # ── Version check: detect ES ↔ Kibana major.minor mismatch ──
+      local es_version
+      es_version=$(get_remote_es_version "$es_host_url" "$REMOTE_ES_CONFIG")
+      if [[ -n "$es_version" ]]; then
+        local es_mm kbn_version kbn_mm
+        es_mm=$(major_minor "$es_version")
+        kbn_version=$(get_kibana_version "$KIBANA_MAIN_DIR")
+        kbn_mm=$(major_minor "$kbn_version")
+        if [[ -n "$kbn_version" && -n "$es_mm" && "$es_mm" != "$kbn_mm" ]]; then
+          # Check if ignoreVersionMismatch is enabled (in remote config or main session yml)
+          local ignore_mismatch=false
+          if grep -q "ignoreVersionMismatch.*true" "$REMOTE_ES_CONFIG" 2>/dev/null || \
+             grep -q "ignoreVersionMismatch.*true" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
+            ignore_mismatch=true
+          fi
+          if [[ "$ignore_mismatch" == true ]]; then
+            echo "${BLUE}ℹ${NC}  Version note: ES ${es_version} ↔ Kibana ${kbn_version} (ignoreVersionMismatch enabled)"
+          else
+            echo ""
+            handle_version_mismatch "$es_version" "$cluster_name" "$es_host_url"
+          fi
+        else
+          echo "${GREEN}✓${NC} Version check: ES ${es_version} ↔ Kibana ${kbn_version:-unknown}"
+        fi
+      fi
     else
       if [[ "$es_http" == "000" ]]; then
         echo "${RED}✗${NC} Cluster health: ${RED}unreachable${NC} — $es_host_url"

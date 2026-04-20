@@ -263,7 +263,11 @@ The cluster name is resolved in this order: `--cluster-name` flag → saved name
 
 If no cluster is found (e.g. it expired and was destroyed), `renew` offers to create a new one automatically using `oblt-cli cluster create`. The create command is configurable via `OBLT_CLUSTER_CREATE_CMD` in `~/.kibana-dev.conf` (defaults to `oblt-cli cluster create ccs --remote-cluster=edge-lite-oblt`). Cluster creation is async — you'll get a Slack notification when it's ready, then run `renew` again to fetch the credentials. The same offer appears if `renew` has a saved cluster name but fetching secrets fails (likely because the cluster was destroyed).
 
-`renew` automatically regenerates `kibana.dev.yml` for any active remote sessions. After renewing, just restart to pick up the new credentials:
+**Version mismatch detection:** After verifying reachability, `renew` queries the remote ES version and compares it against the local Kibana version (from `package.json`). If `elasticsearch.ignoreVersionMismatch: true` is set (which it is by default — see below), the mismatch is shown as an informational note since Kibana will work fine. If the flag is not set and the major.minor versions don't match, `renew` checks `oblt-cli cluster list` for other existing clusters and offers to switch to one. If no other clusters exist, it offers to destroy the old cluster and create a new one. If other sessions (hotfix worktrees) still match the old ES version, `renew` shows which sessions are affected and adjusts the options accordingly.
+
+**ignoreVersionMismatch:** `generate_remote_kibana_dev_yml` automatically injects `elasticsearch.ignoreVersionMismatch: true`, `server.versioned.versionResolution: oldest`, and `server.oas.enabled: true` into every remote session's `kibana.dev.yml` if they're not already present in `~/.kibana-remote-es.yml`. This is necessary because oblt-cli clusters often run a different minor version than the Kibana branch under development.
+
+`renew` automatically regenerates `kibana.dev.yml` for compatible remote sessions. Sessions whose Kibana version doesn't match the new cluster's ES version are skipped — they keep their existing credentials, so hotfix branches on an older version aren't broken by a cluster switch. After renewing, just restart to pick up the new credentials:
 ```bash
 ~/dev-start.sh renew
 ~/dev-start.sh restart feat
@@ -351,7 +355,7 @@ The tests use a lightweight bash framework (`tests/test-helpers.sh`) — no exte
 | `test-arg-parsing` | `kbn-start.sh` flag parsing, `switch`/`new` flag parsing, port reservation logic |
 | `test-clean` | ES data listing, deletion by name/alias, `clean all`, edge cases |
 | `test-config-loading` | `~/.kibana-dev.conf` loading, defaults, full/partial overrides, empty config |
-| `test-renew` | `renew` command: argument parsing, credential fetch (mocked oblt-cli), config saving, error handling |
+| `test-renew` | `renew` command: argument parsing, credential fetch (mocked oblt-cli), config saving, error handling, version mismatch detection |
 
 ---
 

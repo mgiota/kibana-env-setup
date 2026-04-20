@@ -36,6 +36,20 @@ correct command includes port flags that `kbn-start.sh` sets automatically. Run
 ingestion manually, use `-u "elastic:changeme"` (local) or the elastic user password
 from your remote config.
 
+## Remote ES: version mismatch (incompatible)
+
+**Symptom:** Kibana shows "This version of Kibana (v9.5.0) is incompatible with the
+following Elasticsearch nodes in your cluster: v9.4.0".
+
+**Cause:** Kibana `main` bumped to a new minor version but your remote ES cluster is
+still on the previous version. Kibana requires matching major.minor versions.
+
+**Fix:** Run `~/dev-start.sh renew` — it detects version mismatches automatically.
+If you already have another cluster (e.g. created manually), it offers to switch to it.
+Otherwise it offers to destroy the old cluster and create a new one. If you have hotfix
+branches still using the old version, it shows which sessions are affected and adjusts
+options accordingly.
+
 ## Remote ES: connection refused
 
 **Symptom:** Kibana can't connect to remote ES after `switch --remote`.
