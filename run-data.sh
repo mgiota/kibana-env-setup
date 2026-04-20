@@ -135,72 +135,88 @@ case "$1" in
     echo "🧹  Fleet reset — clearing all Fleet state"
     echo ""
 
+    # Helper: extract IDs from JSON using python3 (avoids fragile grep on nested JSON)
+    # Usage: extract_ids '<json>' '<python expression yielding list of dicts>' '<id field>'
+    extract_ids() {
+      echo "$1" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    items = $2
+    for item in items:
+        val = item.get('$3', '')
+        if val:
+            print(val)
+except: pass
+" 2>/dev/null
+    }
+
     # 1. Delete all synthetics monitors (via Kibana API)
+    #    Response: { "monitors": [{ "config_id": "...", ... }], ... }
     echo "▶ Deleting synthetics monitors..."
     local monitors_response monitor_count=0
     monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
       -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    if echo "$monitors_response" | grep -q '"id"'; then
-      local monitor_ids
-      monitor_ids=$(echo "$monitors_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
-      for mid in $monitor_ids; do
-        curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
-          -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
-        monitor_count=$((monitor_count + 1))
-      done
-    fi
+    local monitor_ids
+    monitor_ids=$(extract_ids "$monitors_response" "data.get('monitors', [])" "config_id")
+    for mid in ${(f)monitor_ids}; do
+      [[ -z "$mid" ]] && continue
+      curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
+        -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+      monitor_count=$((monitor_count + 1))
+    done
     echo "   Deleted $monitor_count monitor(s)"
 
     # 2. Delete synthetics private locations (via Kibana API)
+    #    Response: [{ "id": "...", ... }, ...]
     echo "▶ Deleting synthetics private locations..."
     local locations loc_count=0
     locations=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
       -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    if echo "$locations" | grep -q '"id"'; then
-      local loc_ids
-      loc_ids=$(echo "$locations" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
-      for loc_id in $loc_ids; do
-        curl -s -X DELETE "$KIBANA_URL/api/synthetics/private_locations/$loc_id" \
-          -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
-        loc_count=$((loc_count + 1))
-      done
-    fi
+    local loc_ids
+    loc_ids=$(extract_ids "$locations" "data if isinstance(data, list) else []" "id")
+    for loc_id in ${(f)loc_ids}; do
+      [[ -z "$loc_id" ]] && continue
+      curl -s -X DELETE "$KIBANA_URL/api/synthetics/private_locations/$loc_id" \
+        -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+      loc_count=$((loc_count + 1))
+    done
     echo "   Deleted $loc_count private location(s)"
 
     # 3. Force-unenroll all Fleet agents (via Fleet API)
+    #    Response: { "items": [{ "id": "...", ... }], ... }
     echo "▶ Unenrolling Fleet agents..."
     local all_agents_response agent_count=0
     all_agents_response=$(curl -s "$KIBANA_URL/api/fleet/agents?perPage=1000" \
       -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    if echo "$all_agents_response" | grep -q '"id"'; then
-      local all_agent_ids
-      all_agent_ids=$(echo "$all_agents_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
-      for aid in $all_agent_ids; do
-        curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
-          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-          -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
-        agent_count=$((agent_count + 1))
-      done
-    fi
+    local all_agent_ids
+    all_agent_ids=$(extract_ids "$all_agents_response" "data.get('items', data.get('list', []))" "id")
+    for aid in ${(f)all_agent_ids}; do
+      [[ -z "$aid" ]] && continue
+      curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
+        -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+        -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
+      agent_count=$((agent_count + 1))
+    done
     echo "   Unenrolled $agent_count agent(s)"
 
     # 4. Delete Fleet agent policies (via Fleet API)
     #    Use force:true to also delete managed/preconfigured policies
     #    (e.g. fleet-server-policy from kibana.dev.yml xpack.fleet.agentPolicies)
+    #    Response: { "items": [{ "id": "...", ... }], ... }
     echo "▶ Deleting Fleet agent policies..."
     local policies_response policy_count=0
     policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=100" \
       -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    if echo "$policies_response" | grep -q '"id"'; then
-      local policy_ids
-      policy_ids=$(echo "$policies_response" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
-      for pid in $policy_ids; do
-        curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies/delete" \
-          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-          -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\",\"force\":true}" > /dev/null 2>&1
-        policy_count=$((policy_count + 1))
-      done
-    fi
+    local policy_ids
+    policy_ids=$(extract_ids "$policies_response" "data.get('items', [])" "id")
+    for pid in ${(f)policy_ids}; do
+      [[ -z "$pid" ]] && continue
+      curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies/delete" \
+        -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+        -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\",\"force\":true}" > /dev/null 2>&1
+      policy_count=$((policy_count + 1))
+    done
     echo "   Deleted $policy_count agent policy/policies"
 
     # 5. Delete Fleet internal state from ES system indices
