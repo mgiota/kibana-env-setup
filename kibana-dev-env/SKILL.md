@@ -2,13 +2,15 @@
 name: kibana-dev-env
 description: >
   Kibana local development environment manager — tmux sessions, git worktrees,
-  ES + Kibana lifecycle, remote ES credentials, scoped checks, and data ingestion.
-  Use this skill whenever the developer mentions: starting Kibana, switching branches,
-  managing worktrees, running ES locally or remotely, creating SLOs, setting up
-  synthetics private locations, ingesting test data, running scoped lint/typecheck/jest,
-  checking session health, or anything related to their local Kibana dev workflow.
-  Also trigger when the developer asks about ports, tmux sessions, kibana.dev.yml,
-  remote ES configuration, oblt-cli credentials, or bootstrapping their environment.
+  ES + Kibana lifecycle, remote ES credentials, scoped checks, data ingestion,
+  and Synthetics failure scenario injection. Use this skill whenever the developer
+  mentions: starting Kibana, switching branches, managing worktrees, running ES
+  locally or remotely, creating SLOs, setting up synthetics private locations,
+  ingesting test data, breaking/fixing Synthetics state, triggering failure
+  scenarios, running scoped lint/typecheck/jest, checking session health, or
+  anything related to their local Kibana dev workflow. Also trigger when the
+  developer asks about ports, tmux sessions, kibana.dev.yml, remote ES
+  configuration, oblt-cli credentials, or bootstrapping their environment.
 ---
 
 # Kibana Dev Environment
@@ -83,7 +85,7 @@ read `config/kibana.dev.yml` for the correct port, then use it for all API calls
 dev-start.sh (CLI router)
   ├── kbn-start.sh    (bootstrap ES + Kibana in tmux panes)
   ├── run-checks.sh   (scoped lint / typecheck / jest)
-  └── run-data.sh     (SLO + synthetics data ingestion + Fleet reset)
+  └── run-data.sh     (SLO + synthetics data ingestion + failure scenarios + Fleet reset)
 ```
 
 All scripts share config from `~/.kibana-dev.conf` (paths, ports, cluster name)
@@ -219,9 +221,11 @@ directory from `~/.kibana-dev.conf` (KIBANA_MAIN_DIR or WORKTREE_BASE) — don't
 the developer to navigate there manually.
 
 ```bash
-run-data slo          # Ingest SLO fake_stack data via data_forge.js
-run-data synthetics   # Create synthetics private location (Fleet Server + Agent)
-run-data fleet-reset  # Wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
+run-data slo                            # Ingest SLO fake_stack data via data_forge.js
+run-data synthetics                     # Create synthetics private location (Fleet Server + Agent)
+run-data synthetics break <scenario>    # Trigger a Synthetics failure scenario
+run-data synthetics fix <scenario>      # Restore from a failure scenario
+run-data fleet-reset                    # Wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,
@@ -234,6 +238,38 @@ via `--kibana-password` so it works with both local and remote ES.
 
 For remote ES, it auto-reduces concurrency (payload 1000, concurrency 1,
 events-per-cycle 10) to avoid timeouts.
+
+### Synthetics failure scenarios
+
+The `synthetics break` and `synthetics fix` subcommands inject and restore
+Synthetics/Fleet failure states for testing diagnostic tooling. All scenarios are
+reversible. Monitors created by `break` are tagged with `[BREAK]` in their name
+so `fix` can clean them up.
+
+```bash
+run-data synthetics break <scenario>    # inject a failure
+run-data synthetics fix <scenario>      # restore from a failure
+run-data synthetics break all           # chaos mode — trigger all scenarios
+run-data synthetics fix all             # full restore
+run-data synthetics break help          # list available scenarios
+```
+
+Available scenarios:
+
+| Scenario | Break effect | Fix action |
+|----------|-------------|------------|
+| `agent-offline` | Stops synthetics agent Docker container | Restarts stopped agent containers |
+| `revision-mismatch` | Stops agent + creates monitor (policy rev diverges) | Cleans `[BREAK]` monitors + restarts agent |
+| `zero-data` | Creates monitor on private location with agent down | Cleans `[BREAK]` monitors + restarts agent |
+| `fleet-degraded` | Stops Fleet Server container | Restarts Fleet Server containers |
+| `orphaned-data` | Creates + deletes monitor (data remains in ES) | Deletes orphaned check data from ES |
+| `policy-disabled` | Disables Fleet package policy (monitor still enabled) | Re-enables disabled package policies |
+| `orphaned-policy` | Deletes monitor SO from ES (package policy remains) | Deletes package policies with no monitor |
+| `agent-unenrolled` | Force-unenrolls agent (monitors still configured) | Re-enrolls agent (full synthetics setup) |
+| `service-disabled` | Disables Synthetics service (API key invalidated) | Re-enables Synthetics service |
+
+Prerequisites: a working Synthetics setup with at least 1 private location,
+1 enrolled agent, and 1-2 monitors. Run `run-data synthetics` first to provision.
 
 ### Data generated by `run-data slo`
 

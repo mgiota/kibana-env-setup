@@ -3,9 +3,11 @@
 #  run-data.sh — data ingestion helpers for Kibana dev
 #
 #  USAGE:
-#    run-data slo          → ingest SLO fake_stack data
-#    run-data synthetics   → create synthetics private location
-#    run-data fleet-reset  → wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
+#    run-data slo                            → ingest SLO fake_stack data
+#    run-data synthetics                     → create synthetics private location
+#    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
+#    run-data synthetics fix <scenario>      → restore from a failure scenario
+#    run-data fleet-reset                    → wipe all Fleet state
 #
 #  Reads Kibana port and ES host from config/kibana.dev.yml automatically.
 #  Works with both local ES (localhost) and remote ES (oblt-cli / cloud).
@@ -113,17 +115,612 @@ case "$1" in
   synthetics)
     wait_for_kibana
     local KIBANA_URL="http://localhost:${KIBANA_PORT}"
+    local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
+    local ES_AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
 
-    # Uses the Kibana script which handles Fleet Server, agent enrollment,
-    # and private location creation. Works for both local and remote ES
-    # now that the script properly passes --kibana-password to Docker.
+    # ── Helpers for synthetics break/fix ──────────────────────
 
-    echo "DEBUG ES_HOST=${ES_HOST}"
-    node x-pack/scripts/synthetics_private_location.js \
-      --elasticsearch-host "${ES_HOST}" \
-      --kibana-url "$KIBANA_URL" \
-      --kibana-username "${DATA_USERNAME}" \
-      --kibana-password "${DATA_PASSWORD}"
+    _synth_extract() {
+      echo "$1" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    items = $2
+    for item in items:
+        val = item.get('$3', '')
+        if val:
+            print(val)
+except: pass
+" 2>/dev/null
+    }
+
+    _synth_find_agent() {
+      curl -s "$KIBANA_URL/api/fleet/agents?perPage=100" \
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for a in data.get('items', []):
+    if a.get('policy_id') != 'fleet-server-policy':
+        print(a['id']); break
+" 2>/dev/null
+    }
+
+    _synth_find_private_location() {
+      curl -s "$KIBANA_URL/api/synthetics/private_locations" \
+        -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+        -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+locs = data if isinstance(data, list) else []
+for loc in locs:
+    if not loc.get('isServiceManaged', True):
+        print(loc['id']); break
+" 2>/dev/null
+    }
+
+    _synth_find_agent_container() {
+      # Find the synthetics agent container (not Fleet Server)
+      docker ps -a --format '{{.ID}} {{.Names}} {{.Image}}' 2>/dev/null | while read cid cname cimg; do
+        if [[ "$cname" != *"fleet"* && "$cname" != *"Fleet"* ]] && \
+           [[ "$cimg" == *"elastic-agent"* || "$cname" == *"elastic-agent"* ]]; then
+          echo "$cid"; return
+        fi
+      done
+    }
+
+    _synth_find_fleet_container() {
+      docker ps -a --format '{{.ID}} {{.Names}}' 2>/dev/null | while read cid cname; do
+        if [[ "$cname" == *"fleet-server"* || "$cname" == *"fleet_server"* ]]; then
+          echo "$cid"; return
+        fi
+      done
+    }
+
+    _synth_find_package_policy() {
+      curl -s "$KIBANA_URL/api/fleet/package_policies?kuery=fleet-package-policies.package.name:synthetics&perPage=10" \
+        -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+items = data.get('items', [])
+if items: print(items[0]['id'])
+" 2>/dev/null
+    }
+
+    _synth_find_private_monitor() {
+      curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+        -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+        -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for m in data.get('monitors', []):
+    for loc in m.get('locations', []):
+        if not loc.get('isServiceManaged', True):
+            print(m['config_id']); exit()
+" 2>/dev/null
+    }
+
+    # ============================================================
+    #  BREAK — inject Synthetics failure scenarios
+    # ============================================================
+    _synth_break() {
+      local scenario="$1"
+      case "$scenario" in
+
+        agent-offline)
+          echo "💥  Scenario: Agent Offline"
+          echo "   Stopping the synthetics agent Docker container..."
+          local cid
+          cid=$(_synth_find_agent_container)
+          if [[ -z "$cid" ]]; then
+            echo "   ❌ No synthetics agent container found. Is it running?"
+            return 1
+          fi
+          docker stop "$cid"
+          echo "   ✅ Container $cid stopped. Agent will appear offline in ~5 min."
+          echo "   Restore: run-data synthetics fix agent-offline"
+          ;;
+
+        revision-mismatch)
+          echo "💥  Scenario: Policy Revision Mismatch"
+          local cid
+          cid=$(_synth_find_agent_container)
+          if [[ -z "$cid" ]]; then
+            echo "   ❌ No synthetics agent container found."
+            return 1
+          fi
+          echo "   Step 1: Stopping agent container $cid..."
+          docker stop "$cid"
+
+          local loc_id
+          loc_id=$(_synth_find_private_location)
+          if [[ -z "$loc_id" ]]; then
+            echo "   ❌ No private location found. Run 'run-data synthetics' first."
+            return 1
+          fi
+          echo "   Step 2: Creating monitor to bump policy revision..."
+          local resp
+          resp=$(curl -s -X POST "$KIBANA_URL/api/synthetics/monitors" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -H "Content-Type: application/json" -u "$AUTH" \
+            -d '{
+              "type": "http",
+              "name": "[BREAK] revision-mismatch probe",
+              "urls": "https://example.com",
+              "schedule": { "number": "10", "unit": "m" },
+              "locations": [{ "id": "'"$loc_id"'", "isServiceManaged": false }]
+            }' 2>/dev/null)
+          local new_id
+          new_id=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+          if [[ -n "$new_id" ]]; then
+            echo "   ✅ Monitor $new_id created. Agent stopped on old policy revision → mismatch."
+          else
+            echo "   ❌ Failed to create monitor: $resp"
+          fi
+          echo "   Restore: run-data synthetics fix revision-mismatch"
+          ;;
+
+        zero-data)
+          echo "💥  Scenario: Private Location Monitor with Zero Check Results"
+          local cid
+          cid=$(_synth_find_agent_container)
+          if [[ -n "$cid" ]]; then
+            echo "   Stopping agent to prevent data collection..."
+            docker stop "$cid"
+          fi
+          local loc_id
+          loc_id=$(_synth_find_private_location)
+          if [[ -z "$loc_id" ]]; then
+            echo "   ❌ No private location found. Run 'run-data synthetics' first."
+            return 1
+          fi
+          echo "   Creating monitor on private location (agent down → zero data)..."
+          local resp
+          resp=$(curl -s -X POST "$KIBANA_URL/api/synthetics/monitors" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -H "Content-Type: application/json" -u "$AUTH" \
+            -d '{
+              "type": "browser",
+              "name": "[BREAK] zero-data monitor",
+              "urls": "https://elastic.co",
+              "schedule": { "number": "10", "unit": "m" },
+              "locations": [{ "id": "'"$loc_id"'", "isServiceManaged": false }]
+            }' 2>/dev/null)
+          local new_id
+          new_id=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+          if [[ -n "$new_id" ]]; then
+            echo "   ✅ Monitor $new_id created with no agent to run it → zero check results."
+          else
+            echo "   ❌ Failed to create monitor: $resp"
+          fi
+          echo "   Restore: run-data synthetics fix zero-data"
+          ;;
+
+        fleet-degraded)
+          echo "💥  Scenario: Fleet Server Degraded"
+          local cid
+          cid=$(_synth_find_fleet_container)
+          if [[ -z "$cid" ]]; then
+            echo "   ❌ No Fleet Server container found."
+            return 1
+          fi
+          echo "   Stopping Fleet Server container $cid..."
+          docker stop "$cid"
+          echo "   ✅ Fleet Server stopped. Agent will show DEGRADED/OFFLINE."
+          echo "   Restore: run-data synthetics fix fleet-degraded"
+          ;;
+
+        orphaned-data)
+          echo "💥  Scenario: Orphaned Monitor Data in ES"
+          echo "   Creating temporary monitor on public location..."
+          local resp
+          resp=$(curl -s -X POST "$KIBANA_URL/api/synthetics/monitors" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -H "Content-Type: application/json" -u "$AUTH" \
+            -d '{
+              "type": "browser",
+              "name": "[BREAK] orphan-data monitor",
+              "urls": "https://google.com",
+              "schedule": { "number": "3", "unit": "m" },
+              "locations": [{ "id": "us_central_qa", "label": "US Central QA", "isServiceManaged": true }]
+            }' 2>/dev/null)
+          local new_id
+          new_id=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+          if [[ -z "$new_id" ]]; then
+            echo "   ❌ Failed to create monitor: $resp"
+            return 1
+          fi
+          echo "   Monitor $new_id created. Waiting 3 minutes for data..."
+          local elapsed=0
+          while [[ $elapsed -lt 180 ]]; do
+            sleep 30
+            elapsed=$((elapsed + 30))
+            echo "   ⏳ ${elapsed}s / 180s..."
+          done
+          echo "   Deleting monitor (data stays in ES)..."
+          curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$new_id" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" > /dev/null 2>&1
+          echo "   ✅ Monitor deleted. Orphaned data remains for monitor.id=$new_id."
+          echo "   Restore: run-data synthetics fix orphaned-data"
+          ;;
+
+        policy-disabled)
+          echo "💥  Scenario: Package Policy Disabled (Monitor-Fleet Desync)"
+          local pp_id
+          pp_id=$(_synth_find_package_policy)
+          if [[ -z "$pp_id" ]]; then
+            echo "   ❌ No synthetics package policies found."
+            return 1
+          fi
+          echo "   Disabling package policy $pp_id via Fleet API..."
+          local pp_body
+          pp_body=$(curl -s "$KIBANA_URL/api/fleet/package_policies/$pp_id" \
+            -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+item = data.get('item', data)
+item['enabled'] = False
+for k in ['revision', 'created_at', 'created_by', 'updated_at', 'updated_by',
+           'version', 'spaceIds', 'elasticsearch']:
+    item.pop(k, None)
+json.dump(item, sys.stdout)
+" 2>/dev/null)
+          if [[ -z "$pp_body" ]]; then
+            echo "   ❌ Failed to fetch package policy."
+            return 1
+          fi
+          local put_resp
+          put_resp=$(curl -s -X PUT "$KIBANA_URL/api/fleet/package_policies/$pp_id" \
+            -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" -d "$pp_body" 2>/dev/null)
+          if echo "$put_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'item' in d" 2>/dev/null; then
+            echo "   ✅ Package policy $pp_id disabled. Monitor still shows enabled in Kibana."
+          else
+            echo "   ❌ Failed to disable: $(echo "$put_resp" | head -3)"
+          fi
+          echo "   Restore: run-data synthetics fix policy-disabled"
+          ;;
+
+        orphaned-policy)
+          echo "💥  Scenario: Orphaned Package Policy"
+          local monitor_id
+          monitor_id=$(_synth_find_private_monitor)
+          if [[ -z "$monitor_id" ]]; then
+            echo "   ❌ No private location monitors found."
+            return 1
+          fi
+          echo "   Deleting monitor SO from ES (bypassing Fleet cleanup)..."
+          local del_resp
+          del_resp=$(curl -s -X POST \
+            "$KIBANA_URL/api/console/proxy?path=.kibana*%2F_delete_by_query&method=POST" \
+            -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -u "$AUTH" \
+            -d '{"query":{"bool":{"should":[
+              {"term":{"synthetics-monitor.config_id":"'"$monitor_id"'"}},
+              {"term":{"synthetics-monitor-multi-space.config_id":"'"$monitor_id"'"}}
+            ]}}}' 2>/dev/null)
+          local deleted
+          deleted=$(echo "$del_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deleted',0))" 2>/dev/null)
+          echo "   Deleted $deleted SO doc(s) for monitor $monitor_id."
+          echo "   ✅ Package policy remains in Fleet but monitor is gone → orphaned."
+          echo "   Restore: run-data synthetics fix orphaned-policy"
+          ;;
+
+        agent-unenrolled)
+          echo "💥  Scenario: Agent Unenrolled (Monitors Still Configured)"
+          local agent_id
+          agent_id=$(_synth_find_agent)
+          if [[ -z "$agent_id" ]]; then
+            echo "   ❌ No synthetics agent found."
+            return 1
+          fi
+          echo "   Force-unenrolling agent $agent_id..."
+          curl -s -X POST "$KIBANA_URL/api/fleet/agents/$agent_id/unenroll" \
+            -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
+          echo "   ✅ Agent unenrolled. Private location has 0 agents but monitors still exist."
+          echo "   Restore: run-data synthetics fix agent-unenrolled"
+          ;;
+
+        service-disabled)
+          echo "💥  Scenario: Synthetics Service Disabled"
+          echo "   Disabling Synthetics service (invalidates API key)..."
+          curl -s -X DELETE "$KIBANA_URL/internal/synthetics/service/enablement" \
+            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+          echo "   ✅ Synthetics service disabled. Public location monitors stop syncing."
+          echo "   Restore: run-data synthetics fix service-disabled"
+          ;;
+
+        all)
+          echo "💥💥💥  CHAOS MODE — triggering all failure scenarios"
+          echo ""
+          for s in agent-offline revision-mismatch zero-data fleet-degraded orphaned-data \
+                   policy-disabled orphaned-policy agent-unenrolled service-disabled; do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            _synth_break "$s"
+            echo ""
+          done
+          echo "💥💥💥  All scenarios triggered."
+          ;;
+
+        help|*)
+          echo "Available break scenarios:"
+          echo "  agent-offline      Stop the synthetics agent container"
+          echo "  revision-mismatch  Stop agent + add monitor (policy rev diverges)"
+          echo "  zero-data          Create monitor on private loc with agent down"
+          echo "  fleet-degraded     Stop Fleet Server container"
+          echo "  orphaned-data      Create + delete monitor (data remains in ES)"
+          echo "  policy-disabled    Disable Fleet package policy (monitor still enabled)"
+          echo "  orphaned-policy    Delete monitor SO (package policy remains)"
+          echo "  agent-unenrolled   Unenroll agent (monitors still configured)"
+          echo "  service-disabled   Disable Synthetics service (API key invalidated)"
+          echo "  all                Trigger all scenarios (chaos mode)"
+          [[ "$scenario" != "help" ]] && return 1
+          ;;
+      esac
+    }
+
+    # ============================================================
+    #  FIX — restore from Synthetics failure scenarios
+    # ============================================================
+    _synth_fix() {
+      local scenario="$1"
+      case "$scenario" in
+
+        agent-offline)
+          echo "🔧  Fix: Agent Offline"
+          echo "   Starting stopped elastic-agent containers..."
+          local started=0
+          for cid in $(docker ps -a --filter "status=exited" --format '{{.ID}} {{.Image}}' 2>/dev/null \
+                       | grep elastic-agent | awk '{print $1}'); do
+            docker start "$cid"
+            started=$((started + 1))
+          done
+          if [[ $started -gt 0 ]]; then
+            echo "   ✅ Started $started container(s). Agent should come online within ~1 min."
+          else
+            echo "   ⚠ No stopped elastic-agent containers. May need: run-data synthetics"
+          fi
+          ;;
+
+        revision-mismatch)
+          echo "🔧  Fix: Policy Revision Mismatch"
+          echo "   Cleaning up [BREAK] monitors..."
+          curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for m in data.get('monitors', []):
+    if '[BREAK]' in m.get('name', ''):
+        print(m['config_id'])
+" 2>/dev/null | while read mid; do
+            curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
+              -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+              -u "$AUTH" > /dev/null 2>&1
+            echo "   Deleted monitor $mid"
+          done
+          echo "   Restarting agent containers..."
+          _synth_fix agent-offline
+          echo "   ✅ Agent will sync to latest policy revision on next check-in."
+          ;;
+
+        zero-data)
+          echo "🔧  Fix: Zero Check Results"
+          _synth_fix revision-mismatch
+          echo "   ✅ Agent will produce data on next schedule interval."
+          ;;
+
+        fleet-degraded)
+          echo "🔧  Fix: Fleet Server Degraded"
+          echo "   Starting stopped Fleet Server containers..."
+          local started=0
+          for cid in $(docker ps -a --filter "status=exited" --format '{{.ID}} {{.Names}}' 2>/dev/null \
+                       | grep -i fleet | awk '{print $1}'); do
+            docker start "$cid"
+            started=$((started + 1))
+          done
+          if [[ $started -gt 0 ]]; then
+            echo "   ✅ Started $started Fleet Server container(s)."
+          else
+            echo "   ⚠ No stopped Fleet Server containers. May need: run-data synthetics"
+          fi
+          ;;
+
+        orphaned-data)
+          echo "🔧  Fix: Orphaned Monitor Data"
+          echo "   Finding monitor IDs in ES with no matching Kibana config..."
+          local active_ids
+          active_ids=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for m in data.get('monitors', []): print(m['config_id'])
+" 2>/dev/null)
+
+          local es_ids
+          es_ids=$(curl -s -k "$ES_HOST/synthetics-*/_search" \
+            -H "Content-Type: application/json" -u "$ES_AUTH" \
+            -d '{"size":0,"aggs":{"ids":{"terms":{"field":"monitor.id","size":200}}}}' 2>/dev/null \
+            | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for b in data.get('aggregations',{}).get('ids',{}).get('buckets',[]): print(b['key'])
+" 2>/dev/null)
+
+          local cleaned=0
+          for eid in ${(f)es_ids}; do
+            [[ -z "$eid" ]] && continue
+            if ! echo "$active_ids" | grep -q "$eid"; then
+              echo "   Deleting orphaned data for monitor.id=$eid..."
+              curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query" \
+                -H "Content-Type: application/json" -u "$ES_AUTH" \
+                -d '{"query":{"term":{"monitor.id":"'"$eid"'"}}}' > /dev/null 2>&1
+              cleaned=$((cleaned + 1))
+            fi
+          done
+          echo "   ✅ Cleaned $cleaned orphaned monitor dataset(s)."
+          ;;
+
+        policy-disabled)
+          echo "🔧  Fix: Package Policy Disabled"
+          echo "   Re-enabling disabled synthetics package policies..."
+          curl -s "$KIBANA_URL/api/fleet/package_policies?kuery=fleet-package-policies.package.name:synthetics&perPage=100" \
+            -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for item in data.get('items', []):
+    if not item.get('enabled', True):
+        print(item['id'])
+" 2>/dev/null | while read pp_id; do
+            local body
+            body=$(curl -s "$KIBANA_URL/api/fleet/package_policies/$pp_id" \
+              -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+item = data.get('item', data)
+item['enabled'] = True
+for k in ['revision', 'created_at', 'created_by', 'updated_at', 'updated_by',
+           'version', 'spaceIds', 'elasticsearch']:
+    item.pop(k, None)
+json.dump(item, sys.stdout)
+" 2>/dev/null)
+            curl -s -X PUT "$KIBANA_URL/api/fleet/package_policies/$pp_id" \
+              -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+              -H "elastic-api-version: 2023-10-31" \
+              -u "$AUTH" -d "$body" > /dev/null 2>&1
+            echo "   Re-enabled $pp_id"
+          done
+          echo "   ✅ Package policies re-enabled."
+          ;;
+
+        orphaned-policy)
+          echo "🔧  Fix: Orphaned Package Policy"
+          echo "   Finding package policies with no matching monitor..."
+          local monitor_ids
+          monitor_ids=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for m in data.get('monitors', []): print(m['config_id'])
+" 2>/dev/null)
+
+          curl -s "$KIBANA_URL/api/fleet/package_policies?kuery=fleet-package-policies.package.name:synthetics&perPage=100" \
+            -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for item in data.get('items', []):
+    print(item['id'])
+" 2>/dev/null | while read pp_id; do
+            # Package policy ID pattern: {monitorConfigId}-{locationId}
+            # Check if any active monitor ID is a prefix of this package policy ID
+            local is_orphan=true
+            for mid in ${(f)monitor_ids}; do
+              [[ -z "$mid" ]] && continue
+              if [[ "$pp_id" == "$mid"* ]]; then
+                is_orphan=false
+                break
+              fi
+            done
+            if [[ "$is_orphan" == true ]]; then
+              echo "   Deleting orphaned package policy $pp_id..."
+              curl -s -X DELETE "$KIBANA_URL/internal/synthetics/monitor/policy/$pp_id" \
+                -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+            fi
+          done
+          echo "   ✅ Orphaned package policies cleaned."
+          ;;
+
+        agent-unenrolled)
+          echo "🔧  Fix: Agent Unenrolled"
+          echo "   Re-enrolling requires the full synthetics setup..."
+          node x-pack/scripts/synthetics_private_location.js \
+            --elasticsearch-host "${ES_HOST}" \
+            --kibana-url "$KIBANA_URL" \
+            --kibana-username "${DATA_USERNAME}" \
+            --kibana-password "${DATA_PASSWORD}"
+          echo "   ✅ Agent re-enrolled."
+          ;;
+
+        service-disabled)
+          echo "🔧  Fix: Synthetics Service Disabled"
+          echo "   Re-enabling Synthetics service..."
+          curl -s -X PUT "$KIBANA_URL/internal/synthetics/service/enablement" \
+            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+          echo "   ✅ Synthetics service re-enabled. Public location monitors will resume."
+          ;;
+
+        all)
+          echo "🔧🔧🔧  FULL RESTORE — fixing all scenarios"
+          echo ""
+          # Order matters: re-enable service first, fix policies, then restart containers last
+          for s in service-disabled policy-disabled orphaned-policy orphaned-data \
+                   fleet-degraded agent-offline revision-mismatch zero-data agent-unenrolled; do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            _synth_fix "$s"
+            echo ""
+          done
+          echo "🔧🔧🔧  All scenarios restored."
+          ;;
+
+        help|*)
+          echo "Available fix scenarios:"
+          echo "  agent-offline      Restart stopped agent containers"
+          echo "  revision-mismatch  Clean [BREAK] monitors + restart agent"
+          echo "  zero-data          Clean [BREAK] monitors + restart agent"
+          echo "  fleet-degraded     Restart Fleet Server containers"
+          echo "  orphaned-data      Delete orphaned check data from ES"
+          echo "  policy-disabled    Re-enable disabled package policies"
+          echo "  orphaned-policy    Delete package policies with no monitor"
+          echo "  agent-unenrolled   Re-enroll agent (full synthetics setup)"
+          echo "  service-disabled   Re-enable Synthetics service"
+          echo "  all                Fix everything"
+          [[ "$scenario" != "help" ]] && return 1
+          ;;
+      esac
+    }
+
+    # ── Route synthetics subcommands ──────────────────────────
+    case "$2" in
+      break)
+        if [[ -z "$3" ]]; then
+          echo "Usage: run-data synthetics break <scenario>"
+          _synth_break help
+          exit 1
+        fi
+        _synth_break "$3"
+        ;;
+      fix)
+        if [[ -z "$3" ]]; then
+          echo "Usage: run-data synthetics fix <scenario>"
+          _synth_fix help
+          exit 1
+        fi
+        _synth_fix "$3"
+        ;;
+      "")
+        echo "DEBUG ES_HOST=${ES_HOST}"
+        node x-pack/scripts/synthetics_private_location.js \
+          --elasticsearch-host "${ES_HOST}" \
+          --kibana-url "$KIBANA_URL" \
+          --kibana-username "${DATA_USERNAME}" \
+          --kibana-password "${DATA_PASSWORD}"
+        ;;
+      *)
+        echo "Usage: run-data synthetics [break|fix] [scenario]"
+        echo ""
+        echo "  (no args)  Create private location (default setup)"
+        echo "  break <s>  Trigger failure scenario <s>"
+        echo "  fix <s>    Restore from failure scenario <s>"
+        echo ""
+        echo "Run 'run-data synthetics break help' for scenario list."
+        exit 1
+        ;;
+    esac
     ;;
 
   fleet-reset)
@@ -243,20 +840,34 @@ except: pass
       echo '     {"query":{"prefix":{"type":"fleet"}}}'
     fi
 
-    # 6. Delete .fleet-* ES indices (final sweep for any leftover data)
+    # 6. Delete .fleet-* ES indices and data streams (final sweep for any leftover data)
     echo ""
-    echo "▶ Deleting .fleet-* ES indices..."
+    echo "▶ Deleting .fleet-* ES indices and data streams..."
+    local idx_count=0
+
+    # Data streams (e.g. .fleet-actions-results) require X-elastic-product-origin header
+    local fleet_ds
+    fleet_ds=$(curl -s -k "$ES_HOST/_data_stream/.fleet*" -u "$ES_AUTH" 2>/dev/null \
+      | python3 -c "import sys,json; [print(ds['name']) for ds in json.load(sys.stdin).get('data_streams',[])]" 2>/dev/null)
+    for ds in ${(f)fleet_ds}; do
+      [[ -z "$ds" ]] && continue
+      curl -s -k -X DELETE "$ES_HOST/_data_stream/$ds" \
+        -H "X-elastic-product-origin: fleet" -u "$ES_AUTH" > /dev/null 2>&1
+      idx_count=$((idx_count + 1))
+    done
+
+    # Regular indices (e.g. .fleet-agents-7, .fleet-policies-7)
     local fleet_indices
-    fleet_indices=$(curl -s "$ES_HOST/_cat/indices/.fleet*?h=index" \
+    fleet_indices=$(curl -s -k "$ES_HOST/_cat/indices/.fleet*?h=index" \
       -u "$ES_AUTH" 2>/dev/null | tr -d ' ')
-    if [[ -n "$fleet_indices" ]]; then
-      local idx_count=0
-      for idx in ${(f)fleet_indices}; do
-        [[ -z "$idx" ]] && continue
-        curl -s -X DELETE "$ES_HOST/$idx" -u "$ES_AUTH" > /dev/null 2>&1
-        idx_count=$((idx_count + 1))
-      done
-      echo "   Deleted $idx_count .fleet-* index/indices"
+    for idx in ${(f)fleet_indices}; do
+      [[ -z "$idx" ]] && continue
+      curl -s -k -X DELETE "$ES_HOST/$idx" -u "$ES_AUTH" > /dev/null 2>&1
+      idx_count=$((idx_count + 1))
+    done
+
+    if [[ $idx_count -gt 0 ]]; then
+      echo "   Deleted $idx_count .fleet-* index/data stream(s)"
     else
       echo "   No .fleet-* indices found"
     fi
@@ -267,7 +878,7 @@ except: pass
     ;;
 
   *)
-    echo "Usage: run-data [slo|synthetics|fleet-reset]"
+    echo "Usage: run-data [slo|synthetics|synthetics break|synthetics fix|fleet-reset]"
     exit 1
     ;;
 esac

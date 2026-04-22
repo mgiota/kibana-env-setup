@@ -1130,6 +1130,40 @@ elasticsearch.password: "changeme"</pre>
     </div>
   </div>
 
+  <h3 style="margin-top:32px;margin-bottom:14px">Synthetics Failure Scenarios</h3>
+
+  <p>The <span class="code-inline">synthetics break</span> and <span class="code-inline">synthetics fix</span> subcommands inject and restore Synthetics/Fleet failure states for testing diagnostic tooling. All scenarios are reversible. Monitors created by <code style="color:var(--red);background:var(--surface2);padding:1px 6px;border-radius:4px">break</code> are tagged with <code>[BREAK]</code> so <code style="color:var(--green);background:var(--surface2);padding:1px 6px;border-radius:4px">fix</code> can clean them up.</p>
+
+  <div class="card card-red" style="margin-top:16px;margin-bottom:20px">
+    <div class="card-label">Available scenarios</div>
+    <table class="layout-table" style="width:100%;font-size:0.78rem">
+      <tr><td style="width:22%;white-space:nowrap"><code style="color:var(--red)">agent-offline</code></td><td>Stops synthetics agent container → agent appears offline</td></tr>
+      <tr><td><code style="color:var(--red)">revision-mismatch</code></td><td>Stops agent + creates monitor → policy revision diverges from agent</td></tr>
+      <tr><td><code style="color:var(--red)">zero-data</code></td><td>Creates monitor on private location with agent down → zero check results</td></tr>
+      <tr><td><code style="color:var(--red)">fleet-degraded</code></td><td>Stops Fleet Server container → agents lose connectivity</td></tr>
+      <tr><td><code style="color:var(--red)">orphaned-data</code></td><td>Creates + deletes monitor → check data remains in ES with no config</td></tr>
+      <tr><td><code style="color:var(--red)">policy-disabled</code></td><td>Disables Fleet package policy → monitor still enabled in Kibana but not running</td></tr>
+      <tr><td><code style="color:var(--red)">orphaned-policy</code></td><td>Deletes monitor SO from ES → package policy remains with no monitor</td></tr>
+      <tr><td><code style="color:var(--red)">agent-unenrolled</code></td><td>Force-unenrolls agent → private location has 0 agents</td></tr>
+      <tr><td><code style="color:var(--red)">service-disabled</code></td><td>Disables Synthetics service → API key invalidated, public monitors stop</td></tr>
+      <tr><td><code style="color:var(--yellow)">all</code></td><td>Chaos mode (break) / full restore (fix) — triggers or fixes all scenarios</td></tr>
+    </table>
+  </div>
+
+  <div class="two-col">
+    <div class="card card-yellow">
+      <div class="card-label">Prerequisites</div>
+      <p style="font-size:0.78rem">A working Synthetics setup with at least 1 private location, 1 enrolled agent, and 1–2 monitors. Run <code>run-data synthetics</code> first to provision the base infrastructure.</p>
+    </div>
+    <div class="card card-green">
+      <div class="card-label">Usage</div>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics break agent-offline</code></p>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics fix agent-offline</code></p>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics break all</code> — chaos mode</p>
+      <p style="font-size:0.78rem"><code>run-data synthetics break help</code> — list scenarios</p>
+    </div>
+  </div>
+
   <h3 style="margin-top:32px;margin-bottom:14px">Branch-Scoped Checks (run-checks.sh)</h3>
 
   <p>The <strong style="color:var(--text-bright)">checks</strong> window runs lint, typecheck, and jest scoped to files and plugins you've changed on the branch (compared to <code>upstream/main</code> via <code>git merge-base</code>).</p>
@@ -1259,7 +1293,9 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-group-header" style="color:var(--purple)">helper scripts</div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh slo</span><span class="cmd-desc">ingest SLO fake_stack data via data_forge.js — waits for Kibana, reads creds from config</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics</span><span class="cmd-desc">create synthetics private location with Fleet Server + Agent (local ES via script, remote ES via Docker containers)</span></div>
-      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh fleet-reset</span><span class="cmd-desc">wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices) — restart Kibana after</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics break &lt;scenario&gt;</span><span class="cmd-desc">inject a Synthetics failure scenario (agent-offline, revision-mismatch, zero-data, fleet-degraded, orphaned-data, policy-disabled, orphaned-policy, agent-unenrolled, service-disabled, all)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics fix &lt;scenario&gt;</span><span class="cmd-desc">restore from a failure scenario (same options as break, plus <code>all</code> for full restore)</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh fleet-reset</span><span class="cmd-desc">wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices + data streams) — restart Kibana after</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh jest</span><span class="cmd-desc">jest per changed plugin (scoped to branch)</span></div>
@@ -1300,11 +1336,12 @@ elasticsearch.password: "changeme"</pre>
   <h2>Test Suite</h2>
   <div class="card card-green" style="margin-top:20px">
     <div class="card-label">Running tests</div>
-    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh</span><span class="cmd-desc">run all 86 tests across 4 suites</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh</span><span class="cmd-desc">run all tests across 5 suites</span></div>
     <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh config</span><span class="cmd-desc">config generation only</span></div>
     <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh detection</span><span class="cmd-desc">remote ES detection only</span></div>
     <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh run-data</span><span class="cmd-desc">run-data.sh parsing only</span></div>
     <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh arg</span><span class="cmd-desc">argument parsing only</span></div>
+    <div class="cmd-row"><span class="cmd-text">./tests/run-tests.sh synthetics</span><span class="cmd-desc">synthetics break/fix scenarios only</span></div>
   </div>
 
   <div class="card" style="margin-top:20px">
@@ -1314,6 +1351,7 @@ elasticsearch.password: "changeme"</pre>
       <tr><td><code>test-es-detection</code></td><td>Grep pattern matching for both YAML formats (template + oblt-cli), localhost/127.0.0.1 filtering, commented lines, edge cases (15 tests)</td></tr>
       <tr><td><code>test-run-data</code></td><td>Credential parsing, remote detection, concurrency reduction, password defaults, synthetics guard (18 tests)</td></tr>
       <tr><td><code>test-arg-parsing</code></td><td><code>kbn-start.sh</code> flag parsing, <code>switch</code>/<code>new</code> flag parsing, port reservation logic (29 tests)</td></tr>
+      <tr><td><code>test-synthetics-scenarios</code></td><td>Synthetics break/fix subcommand routing, help output, helper functions (<code>_synth_find_agent</code>, <code>_synth_find_private_location</code>, etc.), error handling, <code>[BREAK]</code> tagging, restore instructions — mocked curl/docker (50 tests)</td></tr>
     </table>
   </div>
 
