@@ -7,7 +7,7 @@
 #    run-data synthetics                     → create synthetics private location
 #    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
 #    run-data synthetics fix <scenario>      → restore from a failure scenario
-#    run-data reset                          → wipe all Fleet + Synthetics state
+#    run-data synthetics reset               → wipe all Fleet + Synthetics state
 #
 #  Reads Kibana port and ES host from config/kibana.dev.yml automatically.
 #  Works with both local ES (localhost) and remote ES (oblt-cli / cloud).
@@ -702,40 +702,13 @@ for item in data.get('items', []):
         fi
         _synth_fix "$3"
         ;;
-      "")
-        echo "DEBUG ES_HOST=${ES_HOST}"
-        node x-pack/scripts/synthetics_private_location.js \
-          --elasticsearch-host "${ES_HOST}" \
-          --kibana-url "$KIBANA_URL" \
-          --kibana-username "${DATA_USERNAME}" \
-          --kibana-password "${DATA_PASSWORD}"
-        ;;
-      *)
-        echo "Usage: run-data synthetics [break|fix] [scenario]"
+      reset)
+        echo "🧹  Reset — clearing all Fleet + Synthetics state"
         echo ""
-        echo "  (no args)  Create private location (default setup)"
-        echo "  break <s>  Trigger failure scenario <s>"
-        echo "  fix <s>    Restore from failure scenario <s>"
-        echo ""
-        echo "Run 'run-data synthetics break help' for scenario list."
-        exit 1
-        ;;
-    esac
-    ;;
 
-  reset)
-    wait_for_kibana
-    local KIBANA_URL="http://localhost:${KIBANA_PORT}"
-    local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
-    local ES_AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
-
-    echo "🧹  Reset — clearing all Fleet + Synthetics state"
-    echo ""
-
-    # Helper: extract IDs from JSON using python3 (avoids fragile grep on nested JSON)
-    # Usage: extract_ids '<json>' '<python expression yielding list of dicts>' '<id field>'
-    extract_ids() {
-      echo "$1" | python3 -c "
+        # Helper: extract IDs from JSON using python3 (avoids fragile grep on nested JSON)
+        extract_ids() {
+          echo "$1" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -746,172 +719,179 @@ try:
             print(val)
 except: pass
 " 2>/dev/null
-    }
+        }
 
-    # 1. Delete all synthetics monitors (via Kibana API)
-    #    Response: { "monitors": [{ "config_id": "...", ... }], ... }
-    echo "▶ Deleting synthetics monitors..."
-    local monitors_response monitor_count=0
-    monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
-      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    local monitor_ids
-    monitor_ids=$(extract_ids "$monitors_response" "data.get('monitors', [])" "config_id")
-    for mid in ${(f)monitor_ids}; do
-      [[ -z "$mid" ]] && continue
-      curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
-        -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
-      monitor_count=$((monitor_count + 1))
-    done
-    echo "   Deleted $monitor_count monitor(s)"
+        # 1. Delete all synthetics monitors (via Kibana API)
+        echo "▶ Deleting synthetics monitors..."
+        local monitors_response monitor_count=0
+        monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
+          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        local monitor_ids
+        monitor_ids=$(extract_ids "$monitors_response" "data.get('monitors', [])" "config_id")
+        for mid in ${(f)monitor_ids}; do
+          [[ -z "$mid" ]] && continue
+          curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
+            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+          monitor_count=$((monitor_count + 1))
+        done
+        echo "   Deleted $monitor_count monitor(s)"
 
-    # 2. Delete synthetics private locations (via Kibana API)
-    #    Response: [{ "id": "...", ... }, ...]
-    echo "▶ Deleting synthetics private locations..."
-    local locations loc_count=0
-    locations=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
-      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    local loc_ids
-    loc_ids=$(extract_ids "$locations" "data if isinstance(data, list) else []" "id")
-    for loc_id in ${(f)loc_ids}; do
-      [[ -z "$loc_id" ]] && continue
-      curl -s -X DELETE "$KIBANA_URL/api/synthetics/private_locations/$loc_id" \
-        -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
-      loc_count=$((loc_count + 1))
-    done
-    echo "   Deleted $loc_count private location(s)"
+        # 2. Delete synthetics private locations (via Kibana API)
+        echo "▶ Deleting synthetics private locations..."
+        local locations loc_count=0
+        locations=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
+          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        local loc_ids
+        loc_ids=$(extract_ids "$locations" "data if isinstance(data, list) else []" "id")
+        for loc_id in ${(f)loc_ids}; do
+          [[ -z "$loc_id" ]] && continue
+          curl -s -X DELETE "$KIBANA_URL/api/synthetics/private_locations/$loc_id" \
+            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+          loc_count=$((loc_count + 1))
+        done
+        echo "   Deleted $loc_count private location(s)"
 
-    # 3. Force-unenroll all Fleet agents (via Fleet API)
-    #    Response: { "items": [{ "id": "...", ... }], ... }
-    echo "▶ Unenrolling Fleet agents..."
-    local all_agents_response agent_count=0
-    all_agents_response=$(curl -s "$KIBANA_URL/api/fleet/agents?perPage=1000" \
-      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    local all_agent_ids
-    all_agent_ids=$(extract_ids "$all_agents_response" "data.get('items', data.get('list', []))" "id")
-    for aid in ${(f)all_agent_ids}; do
-      [[ -z "$aid" ]] && continue
-      curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
-        -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-        -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
-      agent_count=$((agent_count + 1))
-    done
-    echo "   Unenrolled $agent_count agent(s)"
+        # 3. Force-unenroll all Fleet agents (via Fleet API)
+        echo "▶ Unenrolling Fleet agents..."
+        local all_agents_response agent_count=0
+        all_agents_response=$(curl -s "$KIBANA_URL/api/fleet/agents?perPage=1000" \
+          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        local all_agent_ids
+        all_agent_ids=$(extract_ids "$all_agents_response" "data.get('items', data.get('list', []))" "id")
+        for aid in ${(f)all_agent_ids}; do
+          [[ -z "$aid" ]] && continue
+          curl -s -X POST "$KIBANA_URL/api/fleet/agents/$aid/unenroll" \
+            -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -u "$AUTH" -d '{"force":true,"revoke":true}' > /dev/null 2>&1
+          agent_count=$((agent_count + 1))
+        done
+        echo "   Unenrolled $agent_count agent(s)"
 
-    # 4. Delete Fleet agent policies (via Fleet API)
-    #    Use force:true to also delete managed/preconfigured policies
-    #    (e.g. fleet-server-policy from kibana.dev.yml xpack.fleet.agentPolicies)
-    #    Response: { "items": [{ "id": "...", ... }], ... }
-    echo "▶ Deleting Fleet agent policies..."
-    local policies_response policy_count=0
-    policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=100" \
-      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    local policy_ids
-    policy_ids=$(extract_ids "$policies_response" "data.get('items', [])" "id")
-    for pid in ${(f)policy_ids}; do
-      [[ -z "$pid" ]] && continue
-      curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies/delete" \
-        -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-        -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\",\"force\":true}" > /dev/null 2>&1
-      policy_count=$((policy_count + 1))
-    done
-    echo "   Deleted $policy_count agent policy/policies"
+        # 4. Delete Fleet agent policies (via Fleet API)
+        echo "▶ Deleting Fleet agent policies..."
+        local policies_response policy_count=0
+        policies_response=$(curl -s "$KIBANA_URL/api/fleet/agent_policies?perPage=100" \
+          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        local policy_ids
+        policy_ids=$(extract_ids "$policies_response" "data.get('items', [])" "id")
+        for pid in ${(f)policy_ids}; do
+          [[ -z "$pid" ]] && continue
+          curl -s -X POST "$KIBANA_URL/api/fleet/agent_policies/delete" \
+            -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -u "$AUTH" -d "{\"agentPolicyId\":\"$pid\",\"force\":true}" > /dev/null 2>&1
+          policy_count=$((policy_count + 1))
+        done
+        echo "   Deleted $policy_count agent policy/policies"
 
-    # 5. Delete Fleet internal state from ES system indices
-    #    Signing keys, preconfiguration records, and other hidden Fleet types live in
-    #    .kibana_ingest_* — a restricted system index. Direct ES curl calls are blocked,
-    #    but Kibana's console proxy API (/api/console/proxy) uses the internal ES client
-    #    and bypasses the restriction — same mechanism Dev Tools uses under the hood.
-    echo ""
-    echo "▶ Clearing Fleet system index data..."
-    local proxy_response
-    proxy_response=$(curl -s -X POST \
-      "$KIBANA_URL/api/console/proxy?path=.kibana_ingest_*%2F_delete_by_query&method=POST" \
-      -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-      -u "$AUTH" \
-      -d '{"query":{"prefix":{"type":"fleet"}}}' 2>/dev/null)
-    if echo "$proxy_response" | grep -q '"deleted"'; then
-      local deleted_count
-      deleted_count=$(echo "$proxy_response" | grep -o '"deleted":[0-9]*' | sed 's/"deleted"://')
-      echo "   Deleted $deleted_count Fleet record(s) from .kibana_ingest_*"
-    else
-      echo "   ⚠ Could not clear .kibana_ingest_* — Fleet signing keys may still exist."
-      echo "     Run manually in Dev Tools (http://localhost:${KIBANA_PORT}/app/dev_tools#/console):"
-      echo "     POST .kibana_ingest_*/_delete_by_query"
-      echo '     {"query":{"prefix":{"type":"fleet"}}}'
-    fi
+        # 5. Delete Fleet internal state from ES system indices
+        echo ""
+        echo "▶ Clearing Fleet system index data..."
+        local proxy_response
+        proxy_response=$(curl -s -X POST \
+          "$KIBANA_URL/api/console/proxy?path=.kibana_ingest_*%2F_delete_by_query&method=POST" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+          -u "$AUTH" \
+          -d '{"query":{"prefix":{"type":"fleet"}}}' 2>/dev/null)
+        if echo "$proxy_response" | grep -q '"deleted"'; then
+          local deleted_count
+          deleted_count=$(echo "$proxy_response" | grep -o '"deleted":[0-9]*' | sed 's/"deleted"://')
+          echo "   Deleted $deleted_count Fleet record(s) from .kibana_ingest_*"
+        else
+          echo "   ⚠ Could not clear .kibana_ingest_* — Fleet signing keys may still exist."
+          echo "     Run manually in Dev Tools (http://localhost:${KIBANA_PORT}/app/dev_tools#/console):"
+          echo "     POST .kibana_ingest_*/_delete_by_query"
+          echo '     {"query":{"prefix":{"type":"fleet"}}}'
+        fi
 
-    # 6. Delete .fleet-* ES indices and data streams (final sweep for any leftover data)
-    echo ""
-    echo "▶ Deleting .fleet-* ES indices and data streams..."
-    local idx_count=0
+        # 6. Delete .fleet-* ES indices and data streams
+        echo ""
+        echo "▶ Deleting .fleet-* ES indices and data streams..."
+        local idx_count=0
 
-    # Data streams (e.g. .fleet-actions-results) require X-elastic-product-origin header
-    local fleet_ds
-    fleet_ds=$(curl -s -k "$ES_HOST/_data_stream/.fleet*" -u "$ES_AUTH" 2>/dev/null \
-      | python3 -c "import sys,json; [print(ds['name']) for ds in json.load(sys.stdin).get('data_streams',[])]" 2>/dev/null)
-    for ds in ${(f)fleet_ds}; do
-      [[ -z "$ds" ]] && continue
-      curl -s -k -X DELETE "$ES_HOST/_data_stream/$ds" \
-        -H "X-elastic-product-origin: fleet" -u "$ES_AUTH" > /dev/null 2>&1
-      idx_count=$((idx_count + 1))
-    done
+        local fleet_ds
+        fleet_ds=$(curl -s -k "$ES_HOST/_data_stream/.fleet*" -u "$ES_AUTH" 2>/dev/null \
+          | python3 -c "import sys,json; [print(ds['name']) for ds in json.load(sys.stdin).get('data_streams',[])]" 2>/dev/null)
+        for ds in ${(f)fleet_ds}; do
+          [[ -z "$ds" ]] && continue
+          curl -s -k -X DELETE "$ES_HOST/_data_stream/$ds" \
+            -H "X-elastic-product-origin: fleet" -u "$ES_AUTH" > /dev/null 2>&1
+          idx_count=$((idx_count + 1))
+        done
 
-    # Regular indices (e.g. .fleet-agents-7, .fleet-policies-7)
-    local fleet_indices
-    fleet_indices=$(curl -s -k "$ES_HOST/_cat/indices/.fleet*?h=index" \
-      -u "$ES_AUTH" 2>/dev/null | tr -d ' ')
-    for idx in ${(f)fleet_indices}; do
-      [[ -z "$idx" ]] && continue
-      curl -s -k -X DELETE "$ES_HOST/$idx" -u "$ES_AUTH" > /dev/null 2>&1
-      idx_count=$((idx_count + 1))
-    done
+        local fleet_indices
+        fleet_indices=$(curl -s -k "$ES_HOST/_cat/indices/.fleet*?h=index" \
+          -u "$ES_AUTH" 2>/dev/null | tr -d ' ')
+        for idx in ${(f)fleet_indices}; do
+          [[ -z "$idx" ]] && continue
+          curl -s -k -X DELETE "$ES_HOST/$idx" -u "$ES_AUTH" > /dev/null 2>&1
+          idx_count=$((idx_count + 1))
+        done
 
-    if [[ $idx_count -gt 0 ]]; then
-      echo "   Deleted $idx_count .fleet-* index/data stream(s)"
-    else
-      echo "   No .fleet-* indices found"
-    fi
+        if [[ $idx_count -gt 0 ]]; then
+          echo "   Deleted $idx_count .fleet-* index/data stream(s)"
+        else
+          echo "   No .fleet-* indices found"
+        fi
 
-    # 7. Disable Synthetics service (invalidate API key)
-    #    The uptime-synthetics-api-key SO authorizes the Elastic public Synthetics
-    #    service. If left behind, ghost monitors can keep running after deletion.
-    echo ""
-    echo "▶ Disabling Synthetics service (invalidating API key)..."
-    local synth_http
-    synth_http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-      "$KIBANA_URL/internal/synthetics/service/enablement" \
-      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
-    if [[ "$synth_http" == "200" ]]; then
-      echo "   Synthetics service disabled and API key invalidated."
-    elif [[ "$synth_http" == "404" ]]; then
-      echo "   Synthetics service was not enabled (nothing to disable)."
-    else
-      echo "   ⚠ Could not disable Synthetics service (HTTP $synth_http)."
-    fi
+        # 7. Disable Synthetics service (invalidate API key)
+        echo ""
+        echo "▶ Disabling Synthetics service (invalidating API key)..."
+        local synth_http
+        synth_http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+          "$KIBANA_URL/internal/synthetics/service/enablement" \
+          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        if [[ "$synth_http" == "200" ]]; then
+          echo "   Synthetics service disabled and API key invalidated."
+        elif [[ "$synth_http" == "404" ]]; then
+          echo "   Synthetics service was not enabled (nothing to disable)."
+        else
+          echo "   ⚠ Could not disable Synthetics service (HTTP $synth_http)."
+        fi
 
-    # 8. Delete orphaned synthetics data from ES
-    echo ""
-    echo "▶ Cleaning orphaned synthetics data streams..."
-    local synth_doc_count
-    synth_doc_count=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" 2>/dev/null \
-      | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
-    if [[ "$synth_doc_count" -gt 0 ]] 2>/dev/null; then
-      echo "   Found $synth_doc_count orphaned doc(s). Deleting..."
-      curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query?conflicts=proceed" \
-        -H "Content-Type: application/json" -u "$ES_AUTH" \
-        -d '{"query":{"match_all":{}}}' > /dev/null 2>&1
-      echo "   Deleted $synth_doc_count doc(s) from synthetics-* data streams."
-    else
-      echo "   No orphaned synthetics data found."
-    fi
+        # 8. Delete orphaned synthetics data from ES
+        echo ""
+        echo "▶ Cleaning orphaned synthetics data..."
+        local synth_doc_count
+        synth_doc_count=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" 2>/dev/null \
+          | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+        if [[ "$synth_doc_count" -gt 0 ]] 2>/dev/null; then
+          echo "   Found $synth_doc_count orphaned doc(s). Deleting..."
+          curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query?conflicts=proceed" \
+            -H "Content-Type: application/json" -u "$ES_AUTH" \
+            -d '{"query":{"match_all":{}}}' > /dev/null 2>&1
+          echo "   Deleted $synth_doc_count doc(s) from synthetics-* data streams."
+        else
+          echo "   No orphaned synthetics data found."
+        fi
 
-    echo ""
-    echo "✅  Fleet + Synthetics state cleared. Restart Kibana so preconfiguration runs fresh:"
-    echo "    ~/dev-start.sh restart main    # or feat, or <branch>"
+        echo ""
+        echo "✅  Fleet + Synthetics state cleared. Restart Kibana so preconfiguration runs fresh:"
+        echo "    ~/dev-start.sh restart main    # or feat, or <branch>"
+        ;;
+      "")
+        echo "DEBUG ES_HOST=${ES_HOST}"
+        node x-pack/scripts/synthetics_private_location.js \
+          --elasticsearch-host "${ES_HOST}" \
+          --kibana-url "$KIBANA_URL" \
+          --kibana-username "${DATA_USERNAME}" \
+          --kibana-password "${DATA_PASSWORD}"
+        ;;
+      *)
+        echo "Usage: run-data synthetics [break|fix|reset] [scenario]"
+        echo ""
+        echo "  (no args)  Create private location (default setup)"
+        echo "  break <s>  Trigger failure scenario <s>"
+        echo "  fix <s>    Restore from failure scenario <s>"
+        echo "  reset      Wipe all Fleet + Synthetics state"
+        echo ""
+        echo "Run 'run-data synthetics break help' for scenario list."
+        exit 1
+        ;;
+    esac
     ;;
 
   *)
-    echo "Usage: run-data [slo|synthetics|synthetics break|synthetics fix|reset]"
+    echo "Usage: run-data [slo|synthetics]"
     exit 1
     ;;
 esac
