@@ -225,7 +225,7 @@ run-data slo                            # Ingest SLO fake_stack data via data_fo
 run-data synthetics                     # Create synthetics private location (Fleet Server + Agent)
 run-data synthetics break <scenario>    # Trigger a Synthetics failure scenario
 run-data synthetics fix <scenario>      # Restore from a failure scenario
-run-data synthetics reset               # Wipe all Fleet + Synthetics state (monitors, locations, agents, policies, .fleet-* indices, API key, orphaned data)
+run-data synthetics reset               # Wipe all Fleet + Synthetics state (monitors, locations, agents, agent records, policies, .fleet-* indices, API key, orphaned data)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,

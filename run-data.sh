@@ -767,6 +767,17 @@ except: pass
         done
         echo "   Unenrolled $agent_count agent(s)"
 
+        # 3b. Delete stale agent records from .fleet-agents (restricted system index — must use console proxy)
+        echo "   Deleting stale agent records from .fleet-agents..."
+        local fleet_agents_del
+        fleet_agents_del=$(curl -s -X POST \
+          "$KIBANA_URL/api/console/proxy?path=.fleet-agents-7%2F_delete_by_query%3Fconflicts%3Dproceed&method=POST" \
+          -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+          -u "$AUTH" -d '{"query":{"match_all":{}}}' 2>/dev/null)
+        local agents_deleted
+        agents_deleted=$(echo "$fleet_agents_del" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deleted',0))" 2>/dev/null)
+        echo "   Deleted $agents_deleted stale agent record(s)"
+
         # 4. Delete Fleet agent policies (via Fleet API)
         echo "▶ Deleting Fleet agent policies..."
         local policies_response policy_count=0
