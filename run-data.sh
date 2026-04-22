@@ -7,7 +7,7 @@
 #    run-data synthetics                     → create synthetics private location
 #    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
 #    run-data synthetics fix <scenario>      → restore from a failure scenario
-#    run-data fleet-reset                    → wipe all Fleet state
+#    run-data reset                          → wipe all Fleet + Synthetics state
 #
 #  Reads Kibana port and ES host from config/kibana.dev.yml automatically.
 #  Works with both local ES (localhost) and remote ES (oblt-cli / cloud).
@@ -723,13 +723,13 @@ for item in data.get('items', []):
     esac
     ;;
 
-  fleet-reset)
+  reset)
     wait_for_kibana
     local KIBANA_URL="http://localhost:${KIBANA_PORT}"
     local AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
     local ES_AUTH="${DATA_USERNAME}:${DATA_PASSWORD}"
 
-    echo "🧹  Fleet reset — clearing all Fleet state"
+    echo "🧹  Reset — clearing all Fleet + Synthetics state"
     echo ""
 
     # Helper: extract IDs from JSON using python3 (avoids fragile grep on nested JSON)
@@ -872,13 +872,46 @@ except: pass
       echo "   No .fleet-* indices found"
     fi
 
+    # 7. Disable Synthetics service (invalidate API key)
+    #    The uptime-synthetics-api-key SO authorizes the Elastic public Synthetics
+    #    service. If left behind, ghost monitors can keep running after deletion.
     echo ""
-    echo "✅  Fleet state cleared. Restart Kibana so preconfiguration runs fresh:"
+    echo "▶ Disabling Synthetics service (invalidating API key)..."
+    local synth_http
+    synth_http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+      "$KIBANA_URL/internal/synthetics/service/enablement" \
+      -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+    if [[ "$synth_http" == "200" ]]; then
+      echo "   Synthetics service disabled and API key invalidated."
+    elif [[ "$synth_http" == "404" ]]; then
+      echo "   Synthetics service was not enabled (nothing to disable)."
+    else
+      echo "   ⚠ Could not disable Synthetics service (HTTP $synth_http)."
+    fi
+
+    # 8. Delete orphaned synthetics data from ES
+    echo ""
+    echo "▶ Cleaning orphaned synthetics data streams..."
+    local synth_doc_count
+    synth_doc_count=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" 2>/dev/null \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+    if [[ "$synth_doc_count" -gt 0 ]] 2>/dev/null; then
+      echo "   Found $synth_doc_count orphaned doc(s). Deleting..."
+      curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query?conflicts=proceed" \
+        -H "Content-Type: application/json" -u "$ES_AUTH" \
+        -d '{"query":{"match_all":{}}}' > /dev/null 2>&1
+      echo "   Deleted $synth_doc_count doc(s) from synthetics-* data streams."
+    else
+      echo "   No orphaned synthetics data found."
+    fi
+
+    echo ""
+    echo "✅  Fleet + Synthetics state cleared. Restart Kibana so preconfiguration runs fresh:"
     echo "    ~/dev-start.sh restart main    # or feat, or <branch>"
     ;;
 
   *)
-    echo "Usage: run-data [slo|synthetics|synthetics break|synthetics fix|fleet-reset]"
+    echo "Usage: run-data [slo|synthetics|synthetics break|synthetics fix|reset]"
     exit 1
     ;;
 esac

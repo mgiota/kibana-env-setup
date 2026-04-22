@@ -85,7 +85,7 @@ read `config/kibana.dev.yml` for the correct port, then use it for all API calls
 dev-start.sh (CLI router)
   ├── kbn-start.sh    (bootstrap ES + Kibana in tmux panes)
   ├── run-checks.sh   (scoped lint / typecheck / jest)
-  └── run-data.sh     (SLO + synthetics data ingestion + failure scenarios + Fleet reset)
+  └── run-data.sh     (SLO + synthetics data ingestion + failure scenarios + full reset)
 ```
 
 All scripts share config from `~/.kibana-dev.conf` (paths, ports, cluster name)
@@ -225,7 +225,7 @@ run-data slo                            # Ingest SLO fake_stack data via data_fo
 run-data synthetics                     # Create synthetics private location (Fleet Server + Agent)
 run-data synthetics break <scenario>    # Trigger a Synthetics failure scenario
 run-data synthetics fix <scenario>      # Restore from a failure scenario
-run-data fleet-reset                    # Wipe all Fleet state (monitors, private locations, agents, policies, .fleet-* indices)
+run-data reset                          # Wipe all Fleet + Synthetics state (monitors, locations, agents, policies, .fleet-* indices, API key, orphaned data)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,
