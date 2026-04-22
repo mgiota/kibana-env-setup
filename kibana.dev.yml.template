@@ -33,6 +33,8 @@ xpack.fleet.agentPolicies:
     # is_managed: true # Useful to mimic cloud environment
     description: Fleet server policy
     namespace: default
+    monitoring_enabled: ['logs', 'metrics']
+    monitoring_output_id: es-default-output
     package_policies:
       - name: Fleet Server
         package:
