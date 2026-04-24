@@ -125,12 +125,13 @@ elasticsearch.hosts:
 ## `dev-start.sh` Command Reference
 
 ```bash
-~/dev-start.sh                          # start/attach all sessions (lands in kibana-feat)
+~/dev-start.sh                          # start/attach all sessions + recover orphaned worktrees
 ~/dev-start.sh switch <branch>          # replace kibana-feat with a new branch
 ~/dev-start.sh new <branch>             # spin up temporary session (PR review, hotfix, etc.)
 ~/dev-start.sh new <branch> --full      # temporary session with full 7-window layout
 ~/dev-start.sh kill <branch>            # kill session + remove worktree
 ~/dev-start.sh kill-all                 # kill all kibana-* sessions
+~/dev-start.sh recover                  # recreate sessions for orphaned worktrees
 ~/dev-start.sh list                     # show sessions, worktrees, port assignments + mismatch warnings
 ~/dev-start.sh attach <branch>          # attach to existing temporary session
 ~/dev-start.sh help                     # usage
@@ -201,6 +202,7 @@ Ctrl-a d    # detach — everything keeps running
 - **Branch names with underscores** — preserved as-is in session names.
 - **`kibana.dev.yml` not regenerated on `new`** — if a worktree already has a `kibana.dev.yml` with wrong ports (e.g. from a previous `new` run), the script skips generation. Run `~/dev-start.sh list` to see mismatch warnings, then delete the file and re-run.
 - **Sessions survive terminal close** — tmux keeps everything running. Only a machine reboot kills sessions.
+- **Auto-recovery of orphaned sessions** — when you run `dev-start.sh` (no args), it automatically detects worktrees without a matching tmux session and recreates them with the same ports. Use `dev-start.sh recover` to do the same without restarting the permanent sessions.
 - **`list` only shows active sessions in port assignments** — dead sessions are filtered out automatically.
 
 ---

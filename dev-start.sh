@@ -4,12 +4,13 @@
 #
 #  USAGE:
 #    Sessions:
-#      (no args)                              start/attach kibana-main + kibana-feat
+#      (no args)                              start/attach all sessions (+ recover orphaned worktrees)
 #      switch <branch> [--remote]             switch kibana-feat to a branch
 #      new <branch> [--full] [--remote]       create worktree + hotfix session
 #      attach <branch>                        attach to an existing session
 #      kill <branch>                          kill session + remove worktree
 #      kill-all                               kill ALL kibana-* sessions
+#      recover                                recreate sessions for orphaned worktrees
 #      prune                                  remove orphaned worktrees (no active session)
 #    Operations:
 #      restart <main|feat|branch>             restart ES + Kibana in a running session
@@ -422,12 +423,13 @@ print_help() {
   echo "${BOLD}dev-start.sh — Kibana tmux + worktree manager${NC}"
   echo ""
   echo "  ${YELLOW}Sessions${NC}"
-  echo "    ${GREEN}(no args)${NC}                              Start/attach kibana-main + kibana-feat"
+  echo "    ${GREEN}(no args)${NC}                              Start/attach all sessions (+ recover orphans)"
   echo "    ${GREEN}switch <branch> [--remote]${NC}             Switch kibana-feat to a branch"
   echo "    ${GREEN}new <branch> [--full] [--remote]${NC}       Create worktree + hotfix session"
   echo "    ${GREEN}attach <branch>${NC}                        Attach to an existing session"
   echo "    ${GREEN}kill <branch>${NC}                          Kill session + remove worktree"
   echo "    ${GREEN}kill-all${NC}                               Kill ALL kibana-* sessions"
+  echo "    ${GREEN}recover${NC}                                Recreate sessions for orphaned worktrees"
   echo "    ${GREEN}prune${NC}                                  Remove orphaned worktrees (no active session)"
   echo ""
   echo "  ${YELLOW}Operations${NC}"
@@ -1333,6 +1335,101 @@ cmd_prune() {
   echo ""
 }
 
+recover_orphaned_sessions() {
+  # Find worktrees that exist but have no matching tmux session, and recreate them.
+  # Called by cmd_main (automatic) and cmd_recover (explicit).
+
+  local active_sessions
+  active_sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+
+  # Load feat state to skip the current feat worktree (it's managed separately)
+  local feat_dir=""
+  if [[ -f "$STATE_FILE" ]]; then
+    source "$STATE_FILE"
+    feat_dir="${FEAT_DIR:-}"
+  fi
+
+  local recovered=0
+  for wt_dir in "$WORKTREE_BASE"/*/; do
+    [[ -d "$wt_dir" ]] || continue
+    local wt_name
+    wt_name=$(basename "$wt_dir")
+
+    # Skip if this is the current feat worktree (managed by kibana-feat session)
+    [[ "$WORKTREE_BASE/$wt_name" == "$feat_dir" ]] && continue
+
+    # Skip "main" worktree — kibana-main uses KIBANA_MAIN_DIR, not a worktree
+    [[ "$wt_name" == "main" ]] && continue
+
+    # Derive session name the same way branch_to_session does
+    local session_name
+    session_name=$(echo "kibana-$wt_name" | tr '.' '-')
+
+    # Skip if session already exists
+    echo "$active_sessions" | grep -q "^${session_name}$" && continue
+
+    # ── Orphaned worktree found — recover it ──
+    echo "${BLUE}→${NC} Recovering session ${BOLD}$session_name${NC} from worktree $wt_name..."
+
+    # Read ports from existing kibana.dev.yml, or assign fresh ones
+    local kibana_port="" es_port="" use_remote=false
+    if [[ -f "$wt_dir/config/kibana.dev.yml" ]]; then
+      kibana_port=$(grep -E "^ *port:" "$wt_dir/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+      es_port=$(grep -E "^ *- \"?http://localhost:" "$wt_dir/config/kibana.dev.yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+      # Detect remote ES config (generated with --remote flag)
+      if grep -q "# Remote ES" "$wt_dir/config/kibana.dev.yml" 2>/dev/null; then
+        use_remote=true
+      fi
+    fi
+
+    # If ports weren't found (no config or remote ES), find free ones
+    if [[ -z "$kibana_port" ]]; then
+      local ports
+      ports=$(find_free_ports)
+      kibana_port=$(echo "$ports" | awk '{print $1}')
+      es_port=$(echo "$ports" | awk '{print $2}')
+    fi
+    if [[ -z "$es_port" && "$use_remote" == false ]]; then
+      local ports
+      ports=$(find_free_ports)
+      kibana_port=$(echo "$ports" | awk '{print $1}')
+      es_port=$(echo "$ports" | awk '{print $2}')
+    fi
+
+    # Regenerate cursor MCP config
+    generate_cursor_mcp_json "$wt_dir" "$kibana_port" "localhost"
+
+    # Create session and build windows
+    tmux new-session -d -s "$session_name" -c "$wt_dir"
+    build_lightweight_session "$session_name" "$wt_dir" "$kibana_port" "${es_port:-0}" "localhost" "$wt_name"
+
+    if [[ "$use_remote" == true ]]; then
+      echo "${GREEN}✓${NC} Recovered: $session_name  Kibana :$kibana_port  (remote ES)"
+    else
+      echo "${GREEN}✓${NC} Recovered: $session_name  Kibana :$kibana_port  ES :$es_port"
+    fi
+    recovered=$((recovered + 1))
+  done
+
+  if [[ $recovered -gt 0 ]]; then
+    echo ""
+    echo "${GREEN}✓${NC} Recovered $recovered orphaned session(s)."
+  fi
+  # Store count so callers can check it (return codes are limited to 0-255)
+  RECOVERED_COUNT=$recovered
+}
+
+cmd_recover() {
+  echo ""
+  echo "${BOLD}Recovering orphaned worktree sessions...${NC}"
+  echo ""
+  recover_orphaned_sessions
+  if [[ ${RECOVERED_COUNT:-0} -eq 0 ]]; then
+    echo "  ${GREEN}✓${NC} No orphaned worktrees found — all sessions are running."
+  fi
+  echo ""
+}
+
 cmd_restart() {
   local target="${1:-}"
 
@@ -2162,6 +2259,9 @@ cmd_main() {
     echo "${YELLOW}↩${NC} Session kibana-feat already running, skipping."
   fi
 
+  # ── Recover orphaned worktree sessions ──
+  recover_orphaned_sessions
+
   echo ""
   echo "${GREEN}✓${NC} All sessions ready:"
   echo "   kibana-feat  ($FEAT_BRANCH)"
@@ -2208,6 +2308,7 @@ case "${1:-main}" in
   clean)       cmd_clean "$2" ;;
   kill)        cmd_kill "$2" ;;
   kill-all)    cmd_kill_all ;;
+  recover)     cmd_recover ;;
   prune)       cmd_prune ;;
   help|--help) print_help ;;
   *)

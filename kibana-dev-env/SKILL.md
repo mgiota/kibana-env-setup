@@ -125,12 +125,13 @@ Run all commands as `~/dev-start.sh <command>`:
 ### Sessions
 | Command | What it does |
 |---------|-------------|
-| *(no args)* | Start/attach kibana-main + kibana-feat |
+| *(no args)* | Start/attach all sessions + auto-recover orphaned worktrees |
 | `switch <branch> [--remote]` | **Destructive** — kills kibana-feat, removes its worktree, creates a new one |
 | `new <branch> [--full] [--remote]` | **Non-destructive** — creates an additional session alongside existing ones |
 | `attach <branch>` | Attach to an existing session |
 | `kill <branch>` | Kill session + remove worktree |
 | `kill-all` | Kill ALL kibana-* sessions |
+| `recover` | Recreate sessions for orphaned worktrees (auto-start ES + Kibana) |
 | `prune` | Remove orphaned worktrees (no active tmux session) |
 
 #### Choosing `new` vs `switch`
