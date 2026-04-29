@@ -128,18 +128,64 @@ port_in_use() {
   lsof -i ":$1" &>/dev/null
 }
 
+# Collect all Kibana and ES ports already assigned in worktree kibana.dev.yml files,
+# so find_free_ports won't hand out a port that's claimed but not currently running.
+collect_assigned_ports() {
+  local reserved=()
+  # Main and feat reserved ports
+  reserved+=("$MAIN_KIBANA_PORT" "$MAIN_ES_PORT" "$FEAT_KIBANA_PORT" "$FEAT_ES_PORT")
+  # Scan all worktree configs
+  local yml
+  for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
+    [[ -f "$yml" ]] || continue
+    local k_port es_port
+    k_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
+    es_port=$(grep -E "^ *- \"?http://localhost:" "$yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+    [[ -n "$k_port" ]] && reserved+=("$k_port")
+    [[ -n "$es_port" ]] && reserved+=("$es_port")
+  done
+  # Also check the main repo config
+  if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]]; then
+    local mk mp
+    mk=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+    mp=$(grep -E "^ *- \"?http://localhost:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+    [[ -n "$mk" ]] && reserved+=("$mk")
+    [[ -n "$mp" ]] && reserved+=("$mp")
+  fi
+  # Also check the feat dir config (if it's outside WORKTREE_BASE)
+  if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]]; then
+    local fk fp
+    fk=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
+    fp=$(grep -E "^ *- \"?http://localhost:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | sed 's|.*http://localhost:||' | tr -d ' "')
+    [[ -n "$fk" ]] && reserved+=("$fk")
+    [[ -n "$fp" ]] && reserved+=("$fp")
+  fi
+  echo "${reserved[@]}"
+}
+
 find_free_ports() {
   local kibana_port=$HOTFIX_KIBANA_PORT_START
   local es_port=$HOTFIX_ES_PORT_START
 
+  # Build set of all reserved/assigned ports (config-level + well-known)
+  local reserved_str
+  reserved_str=$(collect_assigned_ports)
+  local -a reserved_ports=(${=reserved_str})
+
+  _port_is_reserved() {
+    local p="$1" r
+    for r in "${reserved_ports[@]}"; do
+      [[ "$p" == "$r" ]] && return 0
+    done
+    return 1
+  }
+
   while true; do
-    if [[ "$kibana_port" == "$MAIN_KIBANA_PORT" ]] || \
-       [[ "$kibana_port" == "$FEAT_KIBANA_PORT" ]] || \
-       [[ "$es_port"     == "$MAIN_ES_PORT"     ]] || \
-       [[ "$es_port"     == "$FEAT_ES_PORT"     ]]; then
+    if _port_is_reserved "$kibana_port" || _port_is_reserved "$es_port"; then
       (( kibana_port++ )); (( es_port++ ))
       continue
     fi
+    # Also check lsof for conflicts from outside dev-start (other apps)
     if ! port_in_use "$kibana_port" && ! port_in_use "$es_port"; then
       echo "$kibana_port $es_port"
       return
