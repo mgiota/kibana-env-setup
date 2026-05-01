@@ -29,6 +29,7 @@ SCRIPTS=(
   kbn-start.sh
   run-checks.sh
   run-data.sh
+  generate-monitors.js
   kibana.dev.yml.template
   kibana-dev.conf.example
   kibana-remote-es.yml.example

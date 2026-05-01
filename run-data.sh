@@ -725,14 +725,16 @@ except: pass
         # 1. Delete all synthetics monitors (via Kibana API)
         echo "▶ Deleting synthetics monitors..."
         local monitors_response monitor_count=0
-        monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=100" \
-          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+        monitors_response=$(curl -s "$KIBANA_URL/api/synthetics/monitors?perPage=200" \
+          -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+          -u "$AUTH" 2>/dev/null)
         local monitor_ids
         monitor_ids=$(extract_ids "$monitors_response" "data.get('monitors', [])" "config_id")
         for mid in ${(f)monitor_ids}; do
           [[ -z "$mid" ]] && continue
           curl -s -X DELETE "$KIBANA_URL/api/synthetics/monitors/$mid" \
-            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" > /dev/null 2>&1
           monitor_count=$((monitor_count + 1))
         done
         echo "   Deleted $monitor_count monitor(s)"
@@ -741,13 +743,15 @@ except: pass
         echo "▶ Deleting synthetics private locations..."
         local locations loc_count=0
         locations=$(curl -s "$KIBANA_URL/api/synthetics/private_locations" \
-          -H "kbn-xsrf: true" -u "$AUTH" 2>/dev/null)
+          -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+          -u "$AUTH" 2>/dev/null)
         local loc_ids
         loc_ids=$(extract_ids "$locations" "data if isinstance(data, list) else []" "id")
         for loc_id in ${(f)loc_ids}; do
           [[ -z "$loc_id" ]] && continue
           curl -s -X DELETE "$KIBANA_URL/api/synthetics/private_locations/$loc_id" \
-            -H "kbn-xsrf: true" -u "$AUTH" > /dev/null 2>&1
+            -H "kbn-xsrf: true" -H "elastic-api-version: 2023-10-31" \
+            -u "$AUTH" > /dev/null 2>&1
           loc_count=$((loc_count + 1))
         done
         echo "   Deleted $loc_count private location(s)"
@@ -895,12 +899,44 @@ except: pass
           --elasticsearch-password "${DATA_PASSWORD}"
         ;;
       "")
-        echo "DEBUG ES_HOST=${ES_HOST}"
+        # Pre-flight: verify ES is reachable (catches TLS/network errors early)
+        if [[ "$IS_REMOTE" == true ]]; then
+          local es_check
+          es_check=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            -u "${DATA_USERNAME}:${DATA_PASSWORD}" "${ES_HOST}" 2>&1)
+          if [[ "$es_check" != "200" ]]; then
+            echo "⚠  ES connectivity check failed (${ES_HOST}):"
+            curl -s --max-time 10 -u "${DATA_USERNAME}:${DATA_PASSWORD}" "${ES_HOST}" 2>&1
+            echo ""
+            echo "   Fleet Server agent enrollment will likely fail."
+            echo ""
+          fi
+
+          # Ensure Fleet is set up (creates fleet-server-policy if missing).
+          # Required after reset or on fresh clusters — idempotent, safe to call always.
+          echo "Ensuring Fleet is initialised…"
+          local fleet_resp
+          fleet_resp=$(curl -s -X POST "${KIBANA_URL}/api/fleet/setup" \
+            -H "kbn-xsrf: true" -H "content-type: application/json" \
+            -u "${DATA_USERNAME}:${DATA_PASSWORD}" --max-time 30 2>&1)
+          if echo "$fleet_resp" | grep -q '"isInitialized":true'; then
+            echo "✓ Fleet is ready"
+          else
+            echo "⚠  Fleet setup response: $fleet_resp"
+          fi
+          echo ""
+        fi
         node x-pack/scripts/synthetics_private_location.js \
           --elasticsearch-host "${ES_HOST}" \
           --kibana-url "$KIBANA_URL" \
           --kibana-username "${DATA_USERNAME}" \
-          --kibana-password "${DATA_PASSWORD}"
+          --kibana-password "${DATA_PASSWORD}" 2>&1
+        local exit_code=$?
+        if [[ $exit_code -ne 0 ]]; then
+          echo ""
+          echo "❌  synthetics_private_location.js failed (exit code $exit_code)"
+        fi
+        return $exit_code
         ;;
       *)
         echo "Usage: run-data synthetics [monitors|break|fix|reset] [scenario]"
