@@ -5,6 +5,7 @@
 #  USAGE:
 #    run-data slo                            → ingest SLO fake_stack data
 #    run-data synthetics                     → create synthetics private location
+#    run-data synthetics monitors            → create ~40 monitors + mock data (idempotent, uses existing locations)
 #    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
 #    run-data synthetics fix <scenario>      → restore from a failure scenario
 #    run-data synthetics reset               → wipe all Fleet + Synthetics state
@@ -879,6 +880,20 @@ except: pass
         echo "✅  Fleet + Synthetics state cleared. Restart Kibana so preconfiguration runs fresh:"
         echo "    ~/dev-start.sh restart main    # or feat, or <branch>"
         ;;
+      monitors)
+        echo "🖥  Creating Synthetics monitors + mock data..."
+        # Resolve the generate-monitors.js script path
+        # It lives alongside run-data.sh (which may be symlinked)
+        # $0:A resolves symlinks (zsh-native realpath), :h takes dirname
+        local SCRIPT_DIR="${0:A:h}"
+        node "$SCRIPT_DIR/generate-monitors.js" \
+          --kibana-url "$KIBANA_URL" \
+          --kibana-username "${DATA_USERNAME}" \
+          --kibana-password "${DATA_PASSWORD}" \
+          --elasticsearch-host "${ES_HOST}" \
+          --elasticsearch-username "${DATA_USERNAME}" \
+          --elasticsearch-password "${DATA_PASSWORD}"
+        ;;
       "")
         echo "DEBUG ES_HOST=${ES_HOST}"
         node x-pack/scripts/synthetics_private_location.js \
@@ -888,12 +903,13 @@ except: pass
           --kibana-password "${DATA_PASSWORD}"
         ;;
       *)
-        echo "Usage: run-data synthetics [break|fix|reset] [scenario]"
+        echo "Usage: run-data synthetics [monitors|break|fix|reset] [scenario]"
         echo ""
-        echo "  (no args)  Create private location (default setup)"
-        echo "  break <s>  Trigger failure scenario <s>"
-        echo "  fix <s>    Restore from failure scenario <s>"
-        echo "  reset      Wipe all Fleet + Synthetics state"
+        echo "  (no args)   Create private location (default setup)"
+        echo "  monitors    Create ~40 monitors + mock data (idempotent)"
+        echo "  break <s>   Trigger failure scenario <s>"
+        echo "  fix <s>     Restore from failure scenario <s>"
+        echo "  reset       Wipe all Fleet + Synthetics state"
         echo ""
         echo "Run 'run-data synthetics break help' for scenario list."
         exit 1
