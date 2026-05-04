@@ -14,7 +14,7 @@
 #      prune                                  remove orphaned worktrees (no active session)
 #    Operations:
 #      restart <main|feat|branch>             restart ES + Kibana in a running session
-#      renew [--cluster-name <n>] [--save]    refresh remote ES credentials (auto-creates if gone)
+#      renew [--cluster-name <n>] [--session <t>] [--save]  refresh remote ES credentials
 #      sync [main|feat|branch|all] [--remote|--local]  regenerate kibana.dev.yml from template
 #      clean [main|feat|name|all]             list or delete ES data folders
 #    Info:
@@ -480,7 +480,8 @@ print_help() {
   echo ""
   echo "  ${YELLOW}Operations${NC}"
   echo "    ${GREEN}restart <main|feat|branch>${NC}             Restart ES + Kibana in a running session"
-  echo "    ${GREEN}renew [--cluster-name <n>] [--save]${NC}   Refresh remote ES credentials (auto-creates if cluster is gone)"
+  echo "    ${GREEN}renew [--cluster-name <n>] [--session <t>] [--save]${NC}"
+  echo "                                               Refresh remote ES credentials (--session: main|feat|<branch>)"
   echo "    ${GREEN}sync [target] [--remote|--local]${NC}      Regenerate kibana.dev.yml (target: main|feat|branch|all)"
   echo "    ${GREEN}clean [main|feat|name|all]${NC}            List or delete ES data folders"
   echo ""
@@ -499,7 +500,8 @@ print_help() {
   echo "    ./dev-start.sh switch feature/slo-filters --remote"
   echo "    ./dev-start.sh new fix/slo-crash --full --remote"
   echo "    ./dev-start.sh restart feat"
-  echo "    ./dev-start.sh renew                          # auto-detects cluster"
+  echo "    ./dev-start.sh renew                          # auto-detects cluster, updates all remote sessions"
+  echo "    ./dev-start.sh renew --session feat            # only update feat session"
   echo "    ./dev-start.sh sync                           # after editing template"
   echo "    ./dev-start.sh sync main --remote              # switch main to remote ES"
   echo "    ./dev-start.sh sync main --local               # switch main back to local ES"
@@ -1903,15 +1905,17 @@ save_cluster_name_to_conf() {
 cmd_renew() {
   local cluster_name=""
   local save_config=false
+  local session_filter=""
 
   # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --cluster-name) cluster_name="$2"; shift 2 ;;
+      --session)      session_filter="$2"; shift 2 ;;
       --save)         save_config=true; shift ;;
       *)
         echo "${RED}Error:${NC} Unknown argument '$1'"
-        echo "  Usage: ${GREEN}./dev-start.sh renew --cluster-name <name> [--save]${NC}"
+        echo "  Usage: ${GREEN}./dev-start.sh renew [--cluster-name <name>] [--session <target>] [--save]${NC}"
         return 1
         ;;
     esac
@@ -2013,6 +2017,23 @@ cmd_renew() {
     local regenerated=()
     local skipped=()
 
+    # --session filter: resolve target to match against session labels
+    # "main" → kibana-main, "feat" → kibana-feat, "<name>" → kibana-<name>
+    # Empty means all remote sessions (original behaviour).
+    local filter_label=""
+    if [[ -n "$session_filter" ]]; then
+      case "$session_filter" in
+        main) filter_label="kibana-main" ;;
+        feat) filter_label="kibana-feat" ;;
+        *)    filter_label="kibana-$(echo "$session_filter" | sed 's|.*/||' | tr '.' '-')" ;;
+      esac
+    fi
+
+    # Helper: should we process this session?
+    should_process() {
+      [[ -z "$filter_label" ]] || [[ "$1" == "$filter_label" ]]
+    }
+
     # Get the new cluster's ES version for compatibility checks.
     # If we can't determine it, regenerate all sessions (safe default — same as before).
     local new_es_host new_es_ver new_es_mm
@@ -2033,7 +2054,8 @@ cmd_renew() {
     }
 
     # Check kibana-main
-    if [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
+    if should_process "kibana-main" && \
+       [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
        grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
       if is_session_compatible "$KIBANA_MAIN_DIR"; then
         local main_port
@@ -2048,7 +2070,7 @@ cmd_renew() {
     fi
 
     # Check kibana-feat
-    if [[ -f "$STATE_FILE" ]]; then
+    if should_process "kibana-feat" && [[ -f "$STATE_FILE" ]]; then
       source "$STATE_FILE"
       if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
          grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
@@ -2068,21 +2090,23 @@ cmd_renew() {
     # Check hotfix sessions
     # Note: declare locals before the loop — zsh prints values if `local` is
     # called again on an already-declared variable (second iteration onwards).
-    local wt_dir wt_name wt_port wt_skip_ver
+    local wt_dir wt_name wt_session_name wt_port wt_skip_ver
     for yml in "$WORKTREE_BASE"/*/config/kibana.dev.yml; do
       [[ -f "$yml" ]] || continue
       grep -q "Remote ES" "$yml" 2>/dev/null || continue
       wt_dir=$(dirname "$(dirname "$yml")")
       wt_name=$(basename "$wt_dir")
+      wt_session_name="kibana-$(echo "$wt_name" | tr '.' '-')"
       # Skip feat worktree (already handled above)
       [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
+      should_process "$wt_session_name" || continue
       if is_session_compatible "$wt_dir"; then
         wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
         generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
-        regenerated+=("kibana-$wt_name")
+        regenerated+=("$wt_session_name")
       else
         wt_skip_ver=$(get_kibana_version "$wt_dir")
-        skipped+=("kibana-$wt_name (Kibana ${wt_skip_ver:-unknown})")
+        skipped+=("$wt_session_name (Kibana ${wt_skip_ver:-unknown})")
       fi
     done
 
@@ -2094,6 +2118,10 @@ cmd_renew() {
       done
       echo ""
       echo "  Run ${GREEN}./dev-start.sh restart <session>${NC} to pick up the new credentials."
+    elif [[ -n "$session_filter" ]]; then
+      echo ""
+      echo "${YELLOW}⚠${NC}  No remote session matched '${session_filter}'."
+      echo "  Is it currently using remote ES?  Check with: ${GREEN}./dev-start.sh list${NC}"
     fi
 
     if [[ ${#skipped[@]} -gt 0 ]]; then

@@ -154,7 +154,7 @@ When in doubt, ask: "Do you want a new session alongside kibana-feat, or replace
 | Command | What it does |
 |---------|-------------|
 | `restart <main\|feat\|branch>` | Restart ES + Kibana (handles graceful shutdown, auto-rebuilds session if panes are missing) |
-| `renew [--cluster-name <n>] [--save]` | Refresh remote ES credentials; auto-creates cluster if destroyed |
+| `renew [--cluster-name <n>] [--session <t>] [--save]` | Refresh remote ES credentials; `--session` limits to one session (main\|feat\|branch) |
 | `sync [target] [--remote\|--local]` | Regenerate kibana.dev.yml from template (target: main\|feat\|branch\|all) |
 | `clean [main\|feat\|name\|all]` | List or delete ES data folders |
 
@@ -191,16 +191,20 @@ cluster instead of `host.docker.internal`.
 When remote ES credentials expire or the cluster has been destroyed:
 
 ```bash
-~/dev-start.sh renew              # auto-detects cluster, fetches fresh creds
+~/dev-start.sh renew              # auto-detects cluster, fetches fresh creds (all remote sessions)
+~/dev-start.sh renew --session feat   # only update feat (others keep their current cluster)
 ~/dev-start.sh restart feat       # restart to pick up new credentials
 ```
 
 `renew` auto-detects the cluster name from `oblt-cli cluster list`, fetches
 credentials via `oblt-cli cluster secrets kibana-config`, writes to
 `~/.kibana-remote-es.yml`, and regenerates `kibana.dev.yml` for compatible
-remote sessions if credentials changed. Sessions whose Kibana version doesn't
-match the new cluster's ES version are skipped — they keep their existing
-credentials so they remain functional.
+remote sessions if credentials changed. Use `--session <target>` to limit
+regeneration to a single session — other sessions keep their current cluster
+credentials. This is useful when different sessions need to point at different
+clusters (e.g. testing expired certificates, schema changes, or different ES
+versions). Sessions whose Kibana version doesn't match the new cluster's ES
+version are automatically skipped.
 
 If no cluster exists (expired and destroyed), `renew` offers to create a new one
 via `oblt-cli cluster create`. The create command is configurable in

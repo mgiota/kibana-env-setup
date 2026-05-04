@@ -6,6 +6,7 @@
 #    run-data slo                            → ingest SLO fake_stack data
 #    run-data synthetics                     → create synthetics private location
 #    run-data synthetics monitors            → create ~40 monitors + mock data (idempotent, uses existing locations)
+#    run-data synthetics monitors --minimal → create 4 monitors (1 per type) + mock data
 #    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
 #    run-data synthetics fix <scenario>      → restore from a failure scenario
 #    run-data synthetics reset               → wipe all Fleet + Synthetics state
@@ -707,6 +708,25 @@ for item in data.get('items', []):
         echo "🧹  Reset — clearing all Fleet + Synthetics state"
         echo ""
 
+        # 0. Stop and remove Fleet Server / Elastic Agent Docker containers
+        #    Do this first so containers shut down cleanly before we invalidate
+        #    their API keys and wipe the Fleet state they depend on.
+        echo "▶ Stopping Fleet Server and Elastic Agent containers..."
+        local docker_count=0
+        for cid in $(docker ps -a --format '{{.ID}} {{.Names}} {{.Image}}' 2>/dev/null \
+                     | grep -iE 'fleet.server|elastic.agent' | awk '{print $1}'); do
+          local cname
+          cname=$(docker inspect --format '{{.Name}}' "$cid" 2>/dev/null | tr -d '/')
+          docker stop "$cid" >/dev/null 2>&1
+          docker rm -f "$cid" >/dev/null 2>&1
+          echo "   Stopped & removed: $cname ($cid)"
+          docker_count=$((docker_count + 1))
+        done
+        if [[ $docker_count -eq 0 ]]; then
+          echo "   No Fleet/Agent containers running"
+        fi
+        echo ""
+
         # Helper: extract IDs from JSON using python3 (avoids fragile grep on nested JSON)
         extract_ids() {
           echo "$1" | python3 -c "
@@ -890,13 +910,16 @@ except: pass
         # It lives alongside run-data.sh (which may be symlinked)
         # $0:A resolves symlinks (zsh-native realpath), :h takes dirname
         local SCRIPT_DIR="${0:A:h}"
+        local monitor_flags=()
+        [[ "$3" == "--minimal" ]] && monitor_flags+=(--minimal)
         node "$SCRIPT_DIR/generate-monitors.js" \
           --kibana-url "$KIBANA_URL" \
           --kibana-username "${DATA_USERNAME}" \
           --kibana-password "${DATA_PASSWORD}" \
           --elasticsearch-host "${ES_HOST}" \
           --elasticsearch-username "${DATA_USERNAME}" \
-          --elasticsearch-password "${DATA_PASSWORD}"
+          --elasticsearch-password "${DATA_PASSWORD}" \
+          "${monitor_flags[@]}"
         ;;
       "")
         # Pre-flight: verify ES is reachable (catches TLS/network errors early)
@@ -942,7 +965,8 @@ except: pass
         echo "Usage: run-data synthetics [monitors|break|fix|reset] [scenario]"
         echo ""
         echo "  (no args)   Create private location (default setup)"
-        echo "  monitors    Create ~40 monitors + mock data (idempotent)"
+        echo "  monitors              Create ~40 monitors + mock data (idempotent)"
+        echo "  monitors --minimal    Create 4 monitors (1 per type) + mock data"
         echo "  break <s>   Trigger failure scenario <s>"
         echo "  fix <s>     Restore from failure scenario <s>"
         echo "  reset       Wipe all Fleet + Synthetics state"

@@ -16,7 +16,8 @@
 //      --kibana-password changeme \
 //      --elasticsearch-host http://localhost:9200 \
 //      --elasticsearch-username elastic \
-//      --elasticsearch-password changeme
+//      --elasticsearch-password changeme \
+//      [--minimal]          # 4 monitors (1 per type) instead of ~40
 // ============================================================
 
 const http = require('http');
@@ -27,9 +28,15 @@ const { URL } = require('url');
 function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {};
-  for (let i = 0; i < args.length; i += 2) {
+  let minimal = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--minimal') {
+      minimal = true;
+      continue;
+    }
     const key = args[i].replace(/^--/, '').replace(/-/g, '_');
     opts[key] = args[i + 1];
+    i++; // skip the value
   }
   return {
     kibanaUrl: opts.kibana_url || 'http://localhost:5601',
@@ -38,6 +45,7 @@ function parseArgs() {
     esHost: opts.elasticsearch_host || 'http://localhost:9200',
     esUsername: opts.elasticsearch_username || opts.kibana_username || 'elastic',
     esPassword: opts.elasticsearch_password || opts.kibana_password || 'changeme',
+    minimal,
   };
 }
 
@@ -208,6 +216,40 @@ function buildMonitorDefinitions(locations) {
   // Use all available locations
   const all = () => [...allLocs];
 
+  // ── Minimal set: 1 monitor per type (4 total) ──────────
+  if (config.minimal) {
+    return [
+      {
+        type: 'http', name: 'Homepage — elastic.co', urls: 'https://www.elastic.co',
+        schedule: { number: '3', unit: 'm' }, tags: ['production', 'website'],
+        locations: pick(1, 0),
+      },
+      {
+        type: 'tcp', name: 'PostgreSQL Primary', hosts: 'db-primary.example.com:5432',
+        schedule: { number: '3', unit: 'm' }, tags: ['database', 'postgres'],
+        locations: pick(1, 0),
+      },
+      {
+        type: 'icmp', name: 'DC Gateway — Primary', hosts: 'gw-primary.example.com',
+        schedule: { number: '5', unit: 'm' }, tags: ['network', 'gateway'],
+        locations: pick(1, 0),
+      },
+      {
+        type: 'browser', name: 'Login Flow',
+        schedule: { number: '10', unit: 'm' }, tags: ['e2e', 'auth'],
+        locations: pick(1, 0),
+        'source.inline.script': `
+step('Go to login page', async () => {
+  await page.goto('https://app.example.com/login');
+});
+step('Verify login form renders', async () => {
+  await page.waitForSelector('[data-testid="login-form"]');
+});`,
+      },
+    ];
+  }
+
+  // ── Full set: ~38 monitors ─────────────────────────────
   return [
     // ── HTTP Monitors ──────────────────────────────────────
     {
@@ -701,6 +743,7 @@ async function main() {
   console.log('🔧  generate-monitors.js — Synthetics monitor generator');
   console.log(`   Kibana: ${config.kibanaUrl}`);
   console.log(`   ES:     ${config.esHost}`);
+  console.log(`   Mode:   ${config.minimal ? 'minimal (4 monitors)' : 'full (~38 monitors)'}`);
   console.log('');
 
   // 1. Discover available locations (public + private with agents)

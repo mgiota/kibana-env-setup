@@ -140,6 +140,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh clean all                  # delete ALL ES data
 ~/dev-start.sh renew                      # refresh remote ES creds (auto-creates cluster if gone)
 ~/dev-start.sh renew --cluster-name <n>   # refresh with explicit cluster name
+~/dev-start.sh renew --session feat       # only update feat session (others keep current cluster)
 ~/dev-start.sh setup                      # interactive config wizard (paths, ports, symlinks)
 ~/dev-start.sh kill <branch>              # kill session + remove worktree
 ~/dev-start.sh kill-all                   # kill all kibana-* sessions
@@ -257,6 +258,7 @@ The `renew` command pulls fresh credentials from oblt-cli and writes them to `~/
 ~/dev-start.sh renew                                  # auto-detects cluster from oblt-cli
 ~/dev-start.sh renew --cluster-name edge-oblt         # explicit cluster name
 ~/dev-start.sh renew --cluster-name edge-oblt --save  # also save the name for next time
+~/dev-start.sh renew --session feat                   # only update feat (others keep current cluster)
 ```
 
 The cluster name is resolved in this order: `--cluster-name` flag → saved name in `~/.kibana-dev.conf` → auto-detected from `oblt-cli cluster list`.
@@ -267,7 +269,7 @@ If no cluster is found (e.g. it expired and was destroyed), `renew` offers to cr
 
 **ignoreVersionMismatch:** `generate_remote_kibana_dev_yml` automatically injects `elasticsearch.ignoreVersionMismatch: true`, `server.versioned.versionResolution: oldest`, and `server.oas.enabled: true` into every remote session's `kibana.dev.yml` if they're not already present in `~/.kibana-remote-es.yml`. This is necessary because oblt-cli clusters often run a different minor version than the Kibana branch under development.
 
-`renew` automatically regenerates `kibana.dev.yml` for compatible remote sessions. Sessions whose Kibana version doesn't match the new cluster's ES version are skipped — they keep their existing credentials, so hotfix branches on an older version aren't broken by a cluster switch. After renewing, just restart to pick up the new credentials:
+By default, `renew` regenerates `kibana.dev.yml` for **all** compatible remote sessions. Use `--session <target>` to limit regeneration to a single session (`main`, `feat`, or a branch name) — other sessions keep their current cluster credentials. This is useful when you want different sessions pointing at different clusters (e.g. testing expired certificates, schema changes, or different ES versions). Sessions whose Kibana version doesn't match the new cluster's ES version are skipped automatically. After renewing, restart to pick up the new credentials:
 ```bash
 ~/dev-start.sh renew
 ~/dev-start.sh restart feat
