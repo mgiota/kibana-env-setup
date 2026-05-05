@@ -2001,7 +2001,7 @@ cmd_renew() {
   local credentials_changed=true
   if [[ -n "$old_checksum" && "$old_checksum" == "$new_checksum" ]]; then
     credentials_changed=false
-    echo "${GREEN}✓${NC} Credentials unchanged — no update needed."
+    echo "${GREEN}✓${NC} Credentials unchanged — already using this cluster."
   else
     echo "${GREEN}✓${NC} Remote ES config updated: $REMOTE_ES_CONFIG"
   fi
@@ -2012,10 +2012,13 @@ cmd_renew() {
     echo "  Next time you can just run: ${GREEN}./dev-start.sh renew${NC}"
   fi
 
-  # Regenerate kibana.dev.yml for active remote sessions (only if credentials changed)
-  if [[ "$credentials_changed" == true ]]; then
+  # Regenerate kibana.dev.yml for active remote sessions
+  # Run even when credentials_changed=false — a session may still point to a
+  # different (old) cluster and need its kibana.dev.yml regenerated.
+  {
     local regenerated=()
     local skipped=()
+    local up_to_date=()
 
     # --session filter: resolve target to match against session labels
     # "main" → kibana-main, "feat" → kibana-feat, "<name>" → kibana-<name>
@@ -2053,11 +2056,25 @@ cmd_renew() {
       [[ "$kbn_mm" == "$new_es_mm" ]]
     }
 
+    # Helper: check if a session's kibana.dev.yml points to a different ES host
+    # than the current remote config (i.e. it was created against an older cluster).
+    # Returns 0 (true) if the session needs regenerating, 1 if already up-to-date.
+    is_session_stale() {
+      local yml_path="$1"
+      [[ "$credentials_changed" == true ]] && return 0  # global creds changed → always regenerate
+      local session_host
+      session_host=$(grep -E "^ *hosts:" "$yml_path" 2>/dev/null | head -1 | sed 's|.*hosts: *||' | tr -d '"' | tr -d ' ')
+      [[ -z "$session_host" ]] && return 0  # can't determine — regenerate to be safe
+      [[ "$session_host" != "$new_es_host" ]]
+    }
+
     # Check kibana-main
     if should_process "kibana-main" && \
        [[ -f "$KIBANA_MAIN_DIR/config/kibana.dev.yml" ]] && \
        grep -q "Remote ES" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null; then
-      if is_session_compatible "$KIBANA_MAIN_DIR"; then
+      if ! is_session_stale "$KIBANA_MAIN_DIR/config/kibana.dev.yml"; then
+        up_to_date+=("kibana-main")
+      elif is_session_compatible "$KIBANA_MAIN_DIR"; then
         local main_port
         main_port=$(grep -E "^ *port:" "$KIBANA_MAIN_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
         generate_remote_kibana_dev_yml "$KIBANA_MAIN_DIR" "${main_port:-$MAIN_KIBANA_PORT}"
@@ -2074,7 +2091,9 @@ cmd_renew() {
       source "$STATE_FILE"
       if [[ -n "${FEAT_DIR:-}" && -f "$FEAT_DIR/config/kibana.dev.yml" ]] && \
          grep -q "Remote ES" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null; then
-        if is_session_compatible "$FEAT_DIR"; then
+        if ! is_session_stale "$FEAT_DIR/config/kibana.dev.yml"; then
+          up_to_date+=("kibana-feat")
+        elif is_session_compatible "$FEAT_DIR"; then
           local feat_port
           feat_port=$(grep -E "^ *port:" "$FEAT_DIR/config/kibana.dev.yml" 2>/dev/null | head -1 | awk '{print $2}')
           generate_remote_kibana_dev_yml "$FEAT_DIR" "${feat_port:-$FEAT_KIBANA_PORT}"
@@ -2100,7 +2119,9 @@ cmd_renew() {
       # Skip feat worktree (already handled above)
       [[ -n "${FEAT_DIR:-}" && "$wt_dir" == "$FEAT_DIR" ]] && continue
       should_process "$wt_session_name" || continue
-      if is_session_compatible "$wt_dir"; then
+      if ! is_session_stale "$yml"; then
+        up_to_date+=("$wt_session_name")
+      elif is_session_compatible "$wt_dir"; then
         wt_port=$(grep -E "^ *port:" "$yml" 2>/dev/null | head -1 | awk '{print $2}')
         generate_remote_kibana_dev_yml "$wt_dir" "${wt_port}"
         regenerated+=("$wt_session_name")
@@ -2131,7 +2152,12 @@ cmd_renew() {
         echo "  ${BLUE}↳${NC} $s"
       done
     fi
-  fi
+
+    if [[ ${#up_to_date[@]} -gt 0 && ${#regenerated[@]} -eq 0 && ${#skipped[@]} -eq 0 ]]; then
+      echo ""
+      echo "${GREEN}✓${NC} All remote sessions already point to this cluster."
+    fi
+  }
 
   # ── Health check: verify the remote ES cluster is actually reachable ──
   local es_host_url
