@@ -46,3 +46,7 @@
 
 # Command to create a new oblt-cli cluster (used when renew can't find one)
 # OBLT_CLUSTER_CREATE_CMD="oblt-cli cluster create ccs --remote-cluster=edge-lite-oblt"
+
+# ── Kibana extra flags ───────────────────────────────────
+# Extra args appended to every `yarn start` invocation
+# KBN_EXTRA_ARGS="--mockIdpPlugin.enabled=false"

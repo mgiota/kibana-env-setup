@@ -11,10 +11,15 @@
 #    kbn-start.sh [data-folder] [-E key=value ...]
 #                 [--kibana-port N] [--es-port N] [--host hostname]
 #
+#  ENVIRONMENT:
+#    KBN_EXTRA_ARGS  — extra flags appended to `yarn start`
+#                      (set in ~/.kibana-dev.conf to persist across launches)
+#
 #  EXAMPLES:
 #    kbn-start.sh main-cluster --kibana-port 5602 --es-port 9201 --host kibana-main.local
 #    kbn-start.sh feat-cluster --kibana-port 5601 --es-port 9200 --host kibana-feat.local
 #    kbn-start.sh slo-crash    --kibana-port 5603 --es-port 9202
+#    KBN_EXTRA_ARGS="--mockIdpPlugin.enabled=false" kbn-start.sh main
 # ============================================================
 set -euo pipefail
 
@@ -31,6 +36,7 @@ KIBANA_PORT=5601
 ES_PORT=9200
 KIBANA_HOST="localhost"
 ES_FLAGS=""
+KBN_EXTRA_ARGS="${KBN_EXTRA_ARGS:-}"
 # ── END DEFAULTS ──────────────────────────────────────────
 
 # ── ARGUMENT PARSING ──────────────────────────────────────
@@ -137,7 +143,7 @@ if [[ "$USE_REMOTE_ES" == true ]]; then
     C-m
   sleep 2
   tmux send-keys -t "$TMUX_TARGET_PANE" \
-    "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT}" \
+    "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT} ${KBN_EXTRA_ARGS}" \
     C-m
   echo "✅  Kibana starting on http://${KIBANA_HOST}:${KIBANA_PORT} → ES: ${ES_HOST_LINE}"
   echo "    (ES host is configured in ${KIBANA_DEV_YML})"
@@ -151,7 +157,7 @@ else
           C-m
         sleep 2
         tmux send-keys -t "$TMUX_TARGET_PANE" \
-          "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT} --elasticsearch.hosts=http://localhost:${ES_PORT}" \
+          "yarn start --no-base-path --host=${KIBANA_HOST} --port=${KIBANA_PORT} --elasticsearch.hosts=http://localhost:${ES_PORT} ${KBN_EXTRA_ARGS}" \
           C-m
         break
       fi

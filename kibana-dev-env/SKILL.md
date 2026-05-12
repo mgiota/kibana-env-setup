@@ -341,6 +341,7 @@ MAIN_ES_PORT="9201"
 FEAT_KIBANA_PORT="5601"
 FEAT_ES_PORT="9200"
 OBLT_CLUSTER_NAME="my-cluster"   # optional, for renew auto-detect
+KBN_EXTRA_ARGS="--mockIdpPlugin.enabled=false"  # optional, extra flags for yarn start
 ```
 
 ### config/kibana.dev.yml
