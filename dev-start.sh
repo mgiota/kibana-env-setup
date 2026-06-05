@@ -1984,10 +1984,34 @@ cmd_renew() {
     --cluster-name "$cluster_name" \
     --output-file "$REMOTE_ES_CONFIG" 2>/dev/null; then
     echo "${RED}Error:${NC} Failed to fetch kibana config for cluster '$cluster_name'."
+    echo "  (The cluster may have been destroyed, or credentials have expired.)"
     echo ""
-    echo "  The cluster may have been destroyed. Check with:"
-    echo "    ${GREEN}oblt-cli cluster list${NC}"
-    echo ""
+
+    # Before offering to create, check if a different cluster is already running
+    local fallback_detected
+    fallback_detected=$(oblt-cli cluster list 2>&1 | sed -n '/CLUSTER NAME/,$ p' | tail -n +2 | sed 's/[^a-zA-Z0-9 _-]/ /g' | awk 'NF && $1 ~ /[a-z]/ {print $1}')
+    local fallback_count
+    fallback_count=$(echo "$fallback_detected" | grep -c '[a-z]')
+
+    if [[ "$fallback_count" -eq 1 ]]; then
+      local fallback_name
+      fallback_name=$(echo "$fallback_detected" | grep '[a-z]')
+      if [[ "$fallback_name" != "$cluster_name" ]]; then
+        echo "${GREEN}✓${NC} Found a different active cluster: ${BOLD}$fallback_name${NC}"
+        save_cluster_name_to_conf "$fallback_name"
+        cmd_renew --cluster-name "$fallback_name"
+        return $?
+      fi
+    elif [[ "$fallback_count" -gt 1 ]]; then
+      echo "  Multiple clusters found — specify which one:"
+      echo "$fallback_detected" | grep '[a-z]' | while read -r c; do
+        echo "    ${GREEN}$c${NC}"
+      done
+      echo ""
+      echo "  Run: ${GREEN}./dev-start.sh renew --cluster-name <name>${NC}"
+      return 1
+    fi
+
     echo "  Or check your Google Cloud auth:"
     echo "    ${GREEN}gcloud auth login${NC}"
     echo ""
