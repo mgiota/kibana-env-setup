@@ -3,7 +3,7 @@
 #  run-data.sh — data ingestion helpers for Kibana dev
 #
 #  USAGE:
-#    run-data slo                            → ingest SLO fake_stack data
+#    run-data slo [good|bad|mixed]            → ingest SLO fake_stack data (default: good)
 #    run-data synthetics                     → create synthetics private location
 #    run-data synthetics monitors            → create ~40 monitors + mock data (idempotent, uses existing locations)
 #    run-data synthetics monitors --minimal → create 4 monitors (1 per type) + mock data
@@ -99,11 +99,18 @@ case "$1" in
     if [[ "$IS_REMOTE" == true ]]; then
       epc=10 payload=1000 conc=1
     fi
+    # Optional second arg: good (default), bad, mixed
+    local template="${2:-good}"
+    if [[ "$template" != "good" && "$template" != "bad" && "$template" != "mixed" ]]; then
+      echo "❌  Unknown event template: $template. Use: good, bad, mixed"
+      exit 1
+    fi
+    echo "📊  SLO data template: $template"
     node x-pack/scripts/data_forge.js \
       --events-per-cycle "$epc" \
       --lookback now-1d \
       --dataset fake_stack \
-      --event-template good \
+      --event-template "$template" \
       --payload-size "$payload" \
       --concurrency "$conc" \
       --kibana-url "http://localhost:${KIBANA_PORT}" \
