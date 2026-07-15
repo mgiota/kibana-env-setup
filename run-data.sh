@@ -968,8 +968,418 @@ except: pass
         fi
         return $exit_code
         ;;
+      heartbeat)
+        # ── k8s autodiscovery heartbeat monitors ──────────────
+        # Elastic Agent (k8s provider + synthetics inputs) writes pings to
+        # synthetics-* with NO saved object — the input the read-only "heartbeat
+        # monitor" surfacing consumes. See references/heartbeat-autodiscovery.md.
+        local HB_NS_DEFAULT="otel-demo"       # namespace whose Services we monitor
+        local HB_AGENT_NS="kube-system"        # where the Agent runs
+        local HB_MANIFEST="/tmp/kbn-dev-agent-synthetics.yaml"
+        local HB_VERSION HB_IMAGE
+        HB_VERSION=$(grep -m1 '"version"' package.json | sed 's/.*: *"//; s/".*//')
+        HB_IMAGE="docker.elastic.co/elastic-agent/elastic-agent:${HB_VERSION}-SNAPSHOT"
+
+        _hb_need() {
+          command -v "$1" >/dev/null 2>&1 || { echo "❌  '$1' not found in PATH."; return 1; }
+        }
+
+        # Emit the Agent manifest (ConfigMap + Deployment + RBAC) with the
+        # current ES host / api key / image substituted in. Uses a quoted
+        # heredoc + token replacement so the k8s ${...} vars stay literal.
+        _hb_write_manifest() {
+          local es_host="$1" api_key="$2" image="$3" agent_ns="$4"
+          local safe_key="${api_key//&/\\&}"
+          cat <<'YAML' | sed \
+            -e "s|__ES_HOST__|${es_host}|g" \
+            -e "s|__API_KEY__|${safe_key}|g" \
+            -e "s|__IMAGE__|${image}|g" \
+            -e "s|__AGENT_NS__|${agent_ns}|g"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-synthetics-datastreams
+  namespace: __AGENT_NS__
+  labels:
+    app.kubernetes.io/name: elastic-agent-synthetics
+data:
+  agent.yml: |-
+    outputs:
+      default:
+        type: elasticsearch
+        hosts:
+          - __ES_HOST__
+        api_key: __API_KEY__
+        ssl.verification_mode: none
+    agent:
+      monitoring:
+        enabled: false
+    providers.kubernetes:
+      node: ${NODE_NAME}
+      scope: cluster
+      resources:
+        service.enabled: true
+        pod.enabled: false
+    inputs:
+      - name: autodiscover-tcp-synthetic
+        condition: ${kubernetes.annotations.co.elastic.monitor/type} == 'tcp'
+        type: synthetics/tcp
+        meta:
+          package:
+            name: synthetics
+            version: 1.8.0
+        data_stream:
+          namespace: default
+        use_output: default
+        streams:
+          - data_stream:
+              type: synthetics
+              dataset: tcp
+            type: tcp
+            enabled: true
+            name: ${kubernetes.annotations.co.elastic.monitor/name}
+            hosts: ${kubernetes.annotations.co.elastic.monitor/hosts}
+            schedule: ${kubernetes.annotations.co.elastic.monitor/schedule}
+            timeout: ${kubernetes.annotations.co.elastic.monitor/timeout}
+            tags: ["${kubernetes.namespace}", "k8s-autodiscover"]
+            fields_under_root: true
+            fields:
+              monitor.id: "${kubernetes.annotations.co.elastic.monitor/id}"
+      - name: autodiscover-http-synthetic
+        condition: ${kubernetes.annotations.co.elastic.monitor/type} == 'http'
+        type: synthetics/http
+        meta:
+          package:
+            name: synthetics
+            version: 1.8.0
+        data_stream:
+          namespace: default
+        use_output: default
+        streams:
+          - data_stream:
+              type: synthetics
+              dataset: http
+            type: http
+            enabled: true
+            name: ${kubernetes.annotations.co.elastic.monitor/name}
+            hosts: ${kubernetes.annotations.co.elastic.monitor/hosts}
+            schedule: ${kubernetes.annotations.co.elastic.monitor/schedule}
+            timeout: ${kubernetes.annotations.co.elastic.monitor/timeout}
+            tags: ["${kubernetes.namespace}", "k8s-autodiscover"]
+            fields_under_root: true
+            fields:
+              monitor.id: "${kubernetes.annotations.co.elastic.monitor/id}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elastic-agent-synthetics
+  namespace: __AGENT_NS__
+  labels:
+    app.kubernetes.io/name: elastic-agent-synthetics
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: elastic-agent-synthetics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: elastic-agent-synthetics
+    spec:
+      serviceAccountName: elastic-agent-synthetics
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: elastic-agent
+          image: __IMAGE__
+          args: ["-c", "/etc/elastic-agent/agent.yml", "-e"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ELASTIC_NETINFO
+              value: "false"
+          securityContext:
+            runAsUser: 0
+          resources:
+            limits:
+              memory: 1200Mi
+            requests:
+              cpu: 100m
+              memory: 400Mi
+          volumeMounts:
+            - name: datastreams
+              mountPath: /etc/elastic-agent/agent.yml
+              readOnly: true
+              subPath: agent.yml
+      volumes:
+        - name: datastreams
+          configMap:
+            defaultMode: 0644
+            name: agent-synthetics-datastreams
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elastic-agent-synthetics
+  namespace: __AGENT_NS__
+  labels:
+    app.kubernetes.io/name: elastic-agent-synthetics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: elastic-agent-synthetics
+  labels:
+    app.kubernetes.io/name: elastic-agent-synthetics
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - namespaces
+      - events
+      - pods
+      - services
+      - configmaps
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+      - deployments
+      - replicasets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: elastic-agent-synthetics
+subjects:
+  - kind: ServiceAccount
+    name: elastic-agent-synthetics
+    namespace: __AGENT_NS__
+roleRef:
+  kind: ClusterRole
+  name: elastic-agent-synthetics
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: elastic-agent-synthetics
+  namespace: __AGENT_NS__
+  labels:
+    app.kubernetes.io/name: elastic-agent-synthetics
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: elastic-agent-synthetics
+  namespace: __AGENT_NS__
+subjects:
+  - kind: ServiceAccount
+    name: elastic-agent-synthetics
+    namespace: __AGENT_NS__
+roleRef:
+  kind: Role
+  name: elastic-agent-synthetics
+  apiGroup: rbac.authorization.k8s.io
+YAML
+        }
+
+        # One http monitor on `frontend`, tcp monitors on a few backends.
+        _hb_annotate_services() {
+          local ns="$1"
+          _hb_one() { local svc="$1"; shift; kubectl annotate --overwrite -n "$ns" service "$svc" "$@"; }
+          _hb_one frontend \
+            co.elastic.monitor/type=http \
+            co.elastic.monitor/id=otel-frontend-http \
+            co.elastic.monitor/name="otel frontend (http)" \
+            co.elastic.monitor/hosts="http://frontend.${ns}.svc.cluster.local:8080" \
+            co.elastic.monitor/schedule="@every 30s" \
+            co.elastic.monitor/timeout=10s 2>&1 || true
+          local spec
+          for spec in "product-catalog:3550:otel-product-catalog-tcp" \
+                      "cart:7070:otel-cart-tcp" \
+                      "currency:7285:otel-currency-tcp"; do
+            local svc="${spec%%:*}" rest="${spec#*:}"
+            local port="${rest%%:*}" id="${rest#*:}"
+            _hb_one "$svc" \
+              co.elastic.monitor/type=tcp \
+              co.elastic.monitor/id="$id" \
+              co.elastic.monitor/name="otel ${svc} (tcp)" \
+              co.elastic.monitor/hosts="${svc}.${ns}.svc.cluster.local:${port}" \
+              co.elastic.monitor/schedule="@every 30s" \
+              co.elastic.monitor/timeout=10s 2>&1 || true
+          done
+        }
+
+        case "$3" in
+          deploy)
+            _hb_need kubectl || exit 1
+            _hb_need minikube || exit 1
+            _hb_need docker || exit 1
+
+            if ! minikube status >/dev/null 2>&1; then
+              echo "❌  minikube is not running. Start it + deploy the otel demo first:"
+              echo "    node ./scripts/otel_demo.js --config config/kibana.dev.yml"
+              exit 1
+            fi
+            if ! kubectl get ns "$HB_NS_DEFAULT" >/dev/null 2>&1; then
+              echo "⚠  Namespace '$HB_NS_DEFAULT' not found — it provides the Services to monitor."
+              echo "    node ./scripts/otel_demo.js --config config/kibana.dev.yml"
+              echo "   Continuing; you can annotate Services in another namespace manually."
+            fi
+            if [[ "$IS_REMOTE" != true ]]; then
+              echo "⚠  ES host is local ($ES_HOST). The in-cluster Agent likely can't reach it;"
+              echo "   this flow targets remote ES (oblt-cli). Pings may not land."
+            fi
+
+            echo "▶ Installing synthetics integration package…"
+            curl -s -X POST "$KIBANA_URL/api/fleet/epm/packages/synthetics" \
+              -u "$AUTH" -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+              -d '{"force":true}' >/dev/null 2>&1
+            echo "   done."
+
+            echo "▶ Creating scoped ES API key for the Agent output…"
+            local key_resp key_pair
+            key_resp=$(curl -s -k -X POST "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
+              -H "Content-Type: application/json" -d '{
+                "name":"kbn-dev-synthetics-agent",
+                "role_descriptors":{"synthetics_writer":{"cluster":["monitor"],
+                "indices":[{"names":["synthetics-*"],"privileges":["auto_configure","create_doc"]}]}}
+              }' 2>/dev/null)
+            key_pair=$(echo "$key_resp" | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d['id']+':'+d['api_key'])" 2>/dev/null)
+            if [[ -z "$key_pair" ]]; then
+              echo "❌  Could not create API key. Response:"; echo "$key_resp"; exit 1
+            fi
+            echo "   API key created."
+
+            echo "▶ Generating manifest → $HB_MANIFEST"
+            echo "   image: $HB_IMAGE"
+            echo "   es:    $ES_HOST"
+            _hb_write_manifest "$ES_HOST" "$key_pair" "$HB_IMAGE" "$HB_AGENT_NS" > "$HB_MANIFEST"
+
+            echo "▶ Applying manifest…"
+            kubectl apply -f "$HB_MANIFEST"
+            kubectl rollout status deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --timeout=120s || true
+            echo ""
+            echo "✅  Agent deployed. Next: run-data synthetics heartbeat annotate"
+            ;;
+
+          annotate)
+            _hb_need kubectl || exit 1
+            local ns="${4:-$HB_NS_DEFAULT}"
+            echo "▶ Annotating Services in namespace '$ns' (co.elastic.monitor/*)…"
+            _hb_annotate_services "$ns"
+            echo ""
+            echo "✅  Annotated. Pings land within ~1 min. Verify: run-data synthetics heartbeat verify"
+            ;;
+
+          verify)
+            echo "▶ Checking synthetics-* for autodiscovery pings…"
+            local cnt sample
+            cnt=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" \
+              -H "Content-Type: application/json" \
+              -d '{"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+            echo "   k8s-autodiscover pings: ${cnt:-0}"
+            sample=$(curl -s -k "$ES_HOST/synthetics-*/_search" -u "$ES_AUTH" \
+              -H "Content-Type: application/json" \
+              -d '{"size":1,"sort":[{"@timestamp":"desc"}],"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null)
+            echo "$sample" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+hits = d.get('hits', {}).get('hits', [])
+if not hits:
+    print('   No pings yet — wait ~1 min, or check: run-data synthetics heartbeat status')
+    sys.exit(0)
+s = hits[0]['_source']
+print('   latest monitor.id :', s.get('monitor', {}).get('id'))
+print('   monitor.status    :', s.get('monitor', {}).get('status'))
+print('   observer.geo.name :', (s.get('observer', {}) or {}).get('geo', {}).get('name', '<absent>'))
+print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<absent>'))
+" 2>/dev/null || { echo "   Could not parse a sample doc:"; echo "$sample" | head -c 300; }
+            ;;
+
+          status)
+            _hb_need kubectl || exit 1
+            echo "▶ Agent pod:"
+            kubectl get pods -n "$HB_AGENT_NS" \
+              -l app.kubernetes.io/name=elastic-agent-synthetics 2>&1
+            echo ""
+            echo "▶ Recent agent logs:"
+            kubectl logs -n "$HB_AGENT_NS" deploy/elastic-agent-synthetics --tail=20 2>&1 \
+              | grep -vi _encode || true
+            ;;
+
+          reset)
+            _hb_need kubectl || exit 1
+            local ns="${4:-$HB_NS_DEFAULT}"
+            echo "▶ Deleting Agent deployment + RBAC…"
+            if [[ -f "$HB_MANIFEST" ]]; then
+              kubectl delete -f "$HB_MANIFEST" --ignore-not-found 2>&1 || true
+            else
+              kubectl delete deployment,configmap,serviceaccount,role,rolebinding \
+                elastic-agent-synthetics -n "$HB_AGENT_NS" --ignore-not-found 2>&1 || true
+              kubectl delete clusterrole,clusterrolebinding elastic-agent-synthetics \
+                --ignore-not-found 2>&1 || true
+            fi
+            echo "▶ Removing annotations from Services in '$ns'…"
+            local svc
+            for svc in frontend product-catalog cart currency; do
+              kubectl annotate -n "$ns" service "$svc" \
+                co.elastic.monitor/type- co.elastic.monitor/id- co.elastic.monitor/name- \
+                co.elastic.monitor/hosts- co.elastic.monitor/schedule- co.elastic.monitor/timeout- \
+                >/dev/null 2>&1 || true
+            done
+            echo "▶ Deleting k8s-autodiscover pings from synthetics-*…"
+            curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query?conflicts=proceed" \
+              -u "$ES_AUTH" -H "Content-Type: application/json" \
+              -d '{"query":{"term":{"tags":"k8s-autodiscover"}}}' >/dev/null 2>&1
+            echo "▶ Invalidating the Agent API key…"
+            curl -s -k -X DELETE "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"kbn-dev-synthetics-agent"}' >/dev/null 2>&1
+            echo "✅  Heartbeat autodiscovery teardown complete."
+            ;;
+
+          *)
+            echo "Usage: run-data synthetics heartbeat <deploy|annotate|verify|status|reset> [namespace]"
+            echo ""
+            echo "  deploy      Install synthetics pkg, create API key, deploy Agent to minikube"
+            echo "  annotate    Annotate otel-demo Services to drive autodiscovered monitors"
+            echo "  verify      Check synthetics-* pings landed (+ location/space fields)"
+            echo "  status      Show Agent pod + recent logs"
+            echo "  reset       Delete Agent, annotations, pings, and API key"
+            echo ""
+            echo "  Prereq: minikube running + otel demo (node ./scripts/otel_demo.js)."
+            echo "  See references/heartbeat-autodiscovery.md for the full runbook."
+            exit 1
+            ;;
+        esac
+        ;;
+
       *)
-        echo "Usage: run-data synthetics [monitors|break|fix|reset] [scenario]"
+        echo "Usage: run-data synthetics [monitors|break|fix|reset|heartbeat] [scenario]"
         echo ""
         echo "  (no args)   Create private location (default setup)"
         echo "  monitors              Create ~40 monitors + mock data (idempotent)"
@@ -977,8 +1387,10 @@ except: pass
         echo "  break <s>   Trigger failure scenario <s>"
         echo "  fix <s>     Restore from failure scenario <s>"
         echo "  reset       Wipe all Fleet + Synthetics state"
+        echo "  heartbeat <c>  k8s autodiscovery heartbeat monitors (deploy/annotate/verify/status/reset)"
         echo ""
         echo "Run 'run-data synthetics break help' for scenario list."
+        echo "Run 'run-data synthetics heartbeat' for the heartbeat subcommands."
         exit 1
         ;;
     esac
