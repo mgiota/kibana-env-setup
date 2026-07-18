@@ -1,0 +1,18 @@
+{
+  "$schema": "branch-agnostic smoke check that qa-feature can log in, navigate and screenshot",
+  "name": "monitors-smoke",
+  "title": "Synthetics — monitors page smoke",
+  "instance": { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "masks": [".echChart", "[data-test-subj=\"last-run-time\"]", "[data-test-subj=\"monitorLastRunTime\"]"],
+  "steps": [
+    { "action": "goto", "path": "/app/synthetics/monitors", "waitFor": { "selector": "main" } },
+    {
+      "action": "screenshot",
+      "name": "monitors-page",
+      "caption": "Synthetics monitors page"
+    }
+  ]
+}

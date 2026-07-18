@@ -1,0 +1,62 @@
+{
+  "$schema": "see qa/recipes/maintenance-windows.md for the source of these steps",
+  "name": "maintenance-windows",
+  "title": "Synthetics — Manage maintenance windows (bulk)",
+  "instance": { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1200,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [
+    ".echChart",
+    "[data-test-subj=\"last-run-time\"]",
+    "[data-test-subj=\"monitorLastRunTime\"]"
+  ],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "syntheticsMonitorList-loaded" }
+    },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    { "action": "screenshot", "name": "01-monitors-selected", "caption": "Monitors selected" },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    {
+      "action": "screenshot",
+      "name": "02-bulk-menu-open",
+      "caption": "Bulk actions menu open"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkMaintenanceWindowsItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkMaintenanceWindowsFlyout" },
+    {
+      "action": "screenshot",
+      "name": "03-flyout-empty",
+      "caption": "Flyout (Apply mode, no window selected)"
+    },
+    {
+      "action": "comboBoxSelect",
+      "within": "syntheticsBulkMaintenanceWindowsFlyout",
+      "index": 0,
+      "optional": true
+    },
+    {
+      "action": "screenshot",
+      "name": "04-flyout-filled",
+      "caption": "Flyout with a maintenance window selected"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkMaintenanceWindowsSave", "optional": true },
+    { "action": "waitFor", "selector": ".euiToast", "optional": true, "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "05-success-toast",
+      "caption": "Success confirmation"
+    },
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded", "optional": true },
+    {
+      "action": "screenshot",
+      "name": "06-result-table",
+      "caption": "Monitor table after update"
+    }
+  ]
+}

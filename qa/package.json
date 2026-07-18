@@ -1,0 +1,19 @@
+{
+  "name": "kibana-qa-shots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic screenshot + visual-diff QA tool for comparing Kibana instances (e.g. main vs feature worktree).",
+  "bin": {
+    "qa-shots": "qa-shots.mjs"
+  },
+  "scripts": {
+    "shots": "node qa-shots.mjs",
+    "install-browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0"
+  }
+}

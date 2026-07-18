@@ -1,0 +1,53 @@
+{
+  "$schema": "./config.schema notes: see README.md",
+
+  "auth": {
+    "username": "elastic",
+    "password": "changeme"
+  },
+
+  "viewport": { "width": 1440, "height": 900 },
+
+  "settleMs": 2500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "fullPage": false,
+
+  "compare": {
+    "baseline": "main",
+    "diffThresholdPct": 1.0,
+    "pixelmatchThreshold": 0.12
+  },
+
+  "instances": [
+    { "label": "main", "baseUrl": "http://kibana-main.local:5602" },
+    { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" }
+  ],
+
+  "routes": [
+    {
+      "name": "slo-list",
+      "path": "/app/slos",
+      "waitForSelector": "[data-test-subj=\"slosPage\"], [data-test-subj=\"slosOverview\"], [data-test-subj=\"o11ySloList\"]",
+      "mask": ["[data-test-subj=\"sloSparkline\"]", ".echChart", "[data-test-subj=\"sloTimeWindow\"]"]
+    },
+    {
+      "name": "slo-settings",
+      "path": "/app/slos/settings",
+      "waitForSelector": "[data-test-subj=\"sloSettingsPage\"], main",
+      "mask": [".echChart"]
+    },
+    {
+      "name": "synthetics-monitors",
+      "path": "/app/synthetics/monitors",
+      "waitForSelector": "[data-test-subj=\"syntheticsMonitorManagementPage\"], [data-test-subj=\"syntheticsMonitorManagementPageTitle\"], main",
+      "mask": [".echChart", "[data-test-subj=\"last-run-time\"]", "[data-test-subj=\"monitorLastRunTime\"]"]
+    },
+    {
+      "name": "synthetics-overview",
+      "path": "/app/synthetics",
+      "waitForSelector": "[data-test-subj=\"syntheticsOverviewPage\"], main",
+      "mask": [".echChart", "[data-test-subj=\"last-run-time\"]"]
+    }
+  ]
+}
