@@ -984,6 +984,26 @@ except: pass
           command -v "$1" >/dev/null 2>&1 || { echo "❌  '$1' not found in PATH."; return 1; }
         }
 
+        # Minikube quick-start + gotchas. otel_demo.js does NOT auto-start
+        # minikube — it asserts `Running` first (assert_minikube_available.ts),
+        # so you must start it yourself. Always use `minikube start`, never the
+        # Docker Desktop container controls (that causes a stale kubeconfig:
+        # `kubeconfig: Misconfigured`, kubelet/apiserver Stopped, port drift).
+        _hb_minikube_info() {
+          echo "🐳  Minikube quick start (Docker must be running first):"
+          echo "      minikube start --driver=docker --memory=4096 --cpus=4"
+          echo "      minikube status        # host/kubelet/apiserver → Running, kubeconfig → Configured"
+          echo "      kubectl get nodes      # 1 node, Ready"
+          echo ""
+          echo "    Stale kubeconfig ('Misconfigured' / kubelet Stopped after a Docker restart)?"
+          echo "      minikube update-context && minikube start --driver=docker"
+          echo "    Never start/stop the minikube container from Docker Desktop — use 'minikube ...' only."
+          echo "    Clean rebuild if wedged:  minikube delete && minikube start --driver=docker --memory=4096 --cpus=4"
+          echo ""
+          echo "    Then deploy the demo (provides Services to monitor):"
+          echo "      node ./scripts/otel_demo.js --config config/kibana.dev.yml"
+        }
+
         # Emit the Agent manifest (ConfigMap + Deployment + RBAC) with the
         # current ES host / api key / image substituted in. Uses a quoted
         # heredoc + token replacement so the k8s ${...} vars stay literal.
@@ -1238,8 +1258,9 @@ YAML
             _hb_need docker || exit 1
 
             if ! minikube status >/dev/null 2>&1; then
-              echo "❌  minikube is not running. Start it + deploy the otel demo first:"
-              echo "    node ./scripts/otel_demo.js --config config/kibana.dev.yml"
+              echo "❌  minikube is not running (otel_demo.js won't auto-start it)."
+              echo ""
+              _hb_minikube_info
               exit 1
             fi
             if ! kubectl get ns "$HB_NS_DEFAULT" >/dev/null 2>&1; then
@@ -1373,6 +1394,8 @@ print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<abse
             echo ""
             echo "  Prereq: minikube running + otel demo (node ./scripts/otel_demo.js)."
             echo "  See references/heartbeat-autodiscovery.md for the full runbook."
+            echo ""
+            _hb_minikube_info
             exit 1
             ;;
         esac
