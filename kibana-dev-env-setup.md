@@ -217,7 +217,7 @@ Ctrl-a d    # detach — everything keeps running
 | State file | `~/.kibana-dev-state` | Tracks current kibana-feat branch and path |
 | tmux config | `~/.tmux.conf` | tmux settings, prefix Ctrl-a |
 | Presentation | `kibana-dev-workflow.html` | Team presentation with dark/light theme switcher |
-| `kibana-dev-env/` | `~/.claude/skills/kibana-dev-env` → symlink | Claude skill (SKILL.md + references) |
+| `kibana-dev-env/` | `~/.claude/skills/kibana-dev-env` **and** `~/.cursor/skills/kibana-dev-env` → symlinks | Agent skill (SKILL.md + references), loaded by Claude and Cursor |
 | `sync-skill.sh` | repo root | Copies skill to team repo (observability-dev) |
 
 ---
@@ -242,7 +242,10 @@ This means:
 mkdir -p ~/bin
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh ~/dev-start.sh
 ln -s ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh ~/bin/kbn-start.sh
+# Skill: symlink into BOTH agent skill dirs (Claude reads ~/.claude/skills, Cursor reads ~/.cursor/skills)
+mkdir -p ~/.claude/skills ~/.cursor/skills
 ln -sfn ~/Documents/Development/AI_projects/kibana-env-setup/kibana-dev-env ~/.claude/skills/kibana-dev-env
+ln -sfn ~/Documents/Development/AI_projects/kibana-env-setup/kibana-dev-env ~/.cursor/skills/kibana-dev-env
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/dev-start.sh
 chmod +x ~/Documents/Development/AI_projects/kibana-env-setup/kbn-start.sh
 ```
@@ -256,7 +259,7 @@ The `kibana-dev-env` skill lives in three places:
 | Location | Type | Purpose |
 |---|---|---|
 | `kibana-env-setup/kibana-dev-env/` | Source of truth | Develop and iterate here |
-| `~/.claude/skills/kibana-dev-env` | Symlink → source | Instantly available for local use |
+| `~/.claude/skills/kibana-dev-env` **+** `~/.cursor/skills/kibana-dev-env` | Symlinks → source | Instantly available in Claude and Cursor |
 | `observability-dev/docs/actionable-obs/ai_helpers/skills/` | Copy | Team distribution |
 
 **Workflow:**
