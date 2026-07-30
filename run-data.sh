@@ -61,10 +61,15 @@ if [[ "$ES_HOST" != *"localhost"* && "$ES_HOST" != *"127.0.0.1"* ]]; then
   IS_REMOTE=true
 fi
 
-# For data ingestion we always use "elastic" superuser — service accounts
-# like kibana_system_user don't have write permissions on data indices
-DATA_USERNAME="elastic"
-DATA_PASSWORD="${ES_PASSWORD}"
+# For data ingestion we default to the "elastic" superuser — service accounts
+# like kibana_system_user can't write data indices. Override via env for
+# clusters whose superuser isn't `elastic`: oblt-cli clusters use `admin`
+# (see `loginAssistanceMessage` in config/kibana.dev.yml), and the config's
+# elasticsearch.password is kibana_system_user's, not the superuser's — so
+# without this override the heartbeat/API-key calls 401 on a remote cluster.
+#   e.g. DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data ...
+DATA_USERNAME="${DATA_USERNAME:-elastic}"
+DATA_PASSWORD="${DATA_PASSWORD:-$ES_PASSWORD}"
 
 echo "📋  Config from $YML:"
 echo "    Kibana → http://localhost:${KIBANA_PORT}"
@@ -1312,7 +1317,13 @@ YAML
             echo "▶ Annotating Services in namespace '$ns' (co.elastic.monitor/*)…"
             _hb_annotate_services "$ns"
             echo ""
-            echo "✅  Annotated. Pings land within ~1 min. Verify: run-data synthetics heartbeat verify"
+            echo "✅  Annotated. Pings land within ~1 min. Next — verify:"
+            if [[ "$IS_REMOTE" == true ]]; then
+              echo "    DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat verify"
+              echo "    (remote ES needs the superuser — admin pw is in config's loginAssistanceMessage)"
+            else
+              echo "    run-data synthetics heartbeat verify"
+            fi
             ;;
 
           verify)
