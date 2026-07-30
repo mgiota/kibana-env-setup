@@ -305,6 +305,29 @@ run-data.sh fleet-reset  # wipe all Fleet state (monitors, private locations, ag
 
 **Fleet reset:** If you see "Cannot read existing Message Signing Key pair" errors, the remote ES has stale Fleet state from a previous Kibana. Run `run-data.sh fleet-reset` to wipe all Fleet state — it deletes synthetics monitors, private locations, Fleet agents, agent policies, Fleet system index data, and `.fleet-*` ES indices — then restart Kibana so preconfiguration runs fresh.
 
+### Heartbeat / k8s autodiscovery monitors
+
+`run-data.sh synthetics heartbeat` sets up **read-only "heartbeat" monitors** — pings shipped straight to `synthetics-*` by an Elastic Agent running Kubernetes autodiscovery, with **no Kibana saved object** behind them. This is the input the Synthetics app's heartbeat-monitor surfacing consumes, so it's what you need to review/verify that feature.
+
+**Prerequisites:** a running **minikube** cluster with the **OpenTelemetry demo** deployed (it provides the Services that autodiscovery monitors target). The demo isn't optional — autodiscovery needs *live* k8s Services to watch, which oblt-cli's indexed oteldemo data can't provide.
+
+```bash
+minikube start --driver=docker --memory=4096 --cpus=4   # host/kubelet/apiserver → Running
+node ./scripts/otel_demo.js --config config/kibana.dev.yml   # deploy the demo Services
+```
+> On oblt-cli clusters the superuser is `admin` (not `elastic`). Pass creds via env for both the demo and the heartbeat commands: `KIBANA_USERNAME=admin KIBANA_PASSWORD='<admin-pw>'` for `otel_demo.js`, and `DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>'` for `run-data`. The admin password is in `config/kibana.dev.yml`'s `loginAssistanceMessage`.
+
+Then drive the flow:
+```bash
+run-data.sh synthetics heartbeat deploy     # install synthetics pkg, create API key, deploy Agent to minikube
+run-data.sh synthetics heartbeat annotate   # annotate otel-demo Services → autodiscovered monitors start pinging
+run-data.sh synthetics heartbeat verify     # confirm synthetics-* pings landed (+ location/space fields)
+run-data.sh synthetics heartbeat status     # show Agent pod + recent logs
+run-data.sh synthetics heartbeat reset      # delete Agent, annotations, pings, and API key
+```
+
+Pings land within ~1 min of `annotate`. See `kibana-dev-env/references/heartbeat-autodiscovery.md` for the full runbook and troubleshooting (minikube stale kubeconfig, `otel_demo.js` 401s, etc.).
+
 ---
 
 ## Branch-scoped checks (run-checks.sh)

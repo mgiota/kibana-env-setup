@@ -1164,6 +1164,73 @@ elasticsearch.password: "changeme"</pre>
     </div>
   </div>
 
+  <h3 style="margin-top:32px;margin-bottom:14px">Heartbeat / k8s Autodiscovery Monitors</h3>
+
+  <p>The <span class="code-inline">synthetics heartbeat</span> subcommands set up <strong style="color:var(--text-bright)">read-only "heartbeat" monitors</strong> — pings shipped straight to <code style="color:var(--cyan);background:var(--surface2);padding:1px 6px;border-radius:4px">synthetics-*</code> by an Elastic Agent running <strong style="color:var(--text-bright)">Kubernetes autodiscovery</strong>, with <strong style="color:var(--text-bright)">no Kibana saved object</strong> behind them. This is exactly the input the Synthetics app's heartbeat-monitor surfacing consumes — so it's what you provision to review or verify that feature.</p>
+
+  <div class="two-col" style="margin-top:16px">
+    <div class="card card-yellow">
+      <div class="card-label">Prerequisites</div>
+      <p style="font-size:0.78rem;margin-bottom:8px">A running <strong style="color:var(--text-bright)">minikube</strong> cluster with the <strong style="color:var(--text-bright)">OpenTelemetry demo</strong> deployed — it provides the live k8s Services that autodiscovery monitors target.</p>
+      <p style="font-size:0.75rem;margin-bottom:4px"><code>minikube start --driver=docker --memory=4096 --cpus=4</code></p>
+      <p style="font-size:0.75rem"><code>node ./scripts/otel_demo.js --config config/kibana.dev.yml</code></p>
+      <p style="font-size:0.72rem;margin-top:8px;color:var(--text-dim)">The demo isn't optional — autodiscovery needs live Services to watch, which oblt-cli's indexed oteldemo data can't provide.</p>
+    </div>
+    <div class="card card-purple">
+      <div class="card-label">Remote ES creds (oblt-cli)</div>
+      <p style="font-size:0.78rem;margin-bottom:8px">On oblt-cli clusters the superuser is <code style="color:var(--purple)">admin</code>, not <code>elastic</code>. Pass creds via env — the admin password is in <code>config/kibana.dev.yml</code>'s <code>loginAssistanceMessage</code>.</p>
+      <p style="font-size:0.72rem;margin-bottom:4px"><code>KIBANA_USERNAME=admin KIBANA_PASSWORD='&lt;pw&gt;'</code> → <code>otel_demo.js</code></p>
+      <p style="font-size:0.72rem"><code>DATA_USERNAME=admin DATA_PASSWORD='&lt;pw&gt;'</code> → <code>run-data</code></p>
+    </div>
+  </div>
+
+  <div class="flow" style="margin-top:24px">
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">1</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">deploy</div>
+        <div class="flow-desc">Installs the synthetics package, creates an API key, and deploys the Elastic Agent (with k8s autodiscovery config) to minikube.</div>
+        <span class="code-inline">run-data synthetics heartbeat deploy</span>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)">2</div>
+        <div class="flow-line"></div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">annotate</div>
+        <div class="flow-desc">Annotates the otel-demo Services so autodiscovery picks them up and starts emitting monitors. Pings land in <code>synthetics-*</code> within ~1 min.</div>
+        <span class="code-inline">run-data synthetics heartbeat annotate</span>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-left">
+        <div class="flow-circle" style="background:var(--green-bg);border-color:var(--green-bd);color:var(--green)">3</div>
+      </div>
+      <div class="flow-body">
+        <div class="flow-title">verify</div>
+        <div class="flow-desc">Confirms autodiscovery pings landed and reports their location/space fields (heartbeat pings are typically location-less and space-less). Then check them in the Synthetics overview.</div>
+        <span class="code-inline">run-data synthetics heartbeat verify</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card card-green">
+      <div class="card-label">Inspect & tear down</div>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics heartbeat status</code> — Agent pod + recent logs</p>
+      <p style="font-size:0.78rem"><code>run-data synthetics heartbeat reset</code> — delete Agent, annotations, pings, and API key</p>
+    </div>
+    <div class="card card-blue">
+      <div class="card-label">Full runbook</div>
+      <p style="font-size:0.78rem">See <code>references/heartbeat-autodiscovery.md</code> for the end-to-end walkthrough and troubleshooting (minikube stale kubeconfig, <code>otel_demo.js</code> 401s, agent pointing at a destroyed cluster).</p>
+    </div>
+  </div>
+
   <h3 style="margin-top:32px;margin-bottom:14px">Branch-Scoped Checks (run-checks.sh)</h3>
 
   <p>The <strong style="color:var(--text-bright)">checks</strong> window runs lint, typecheck, and jest scoped to files and plugins you've changed on the branch (compared to <code>upstream/main</code> via <code>git merge-base</code>).</p>
@@ -1298,6 +1365,7 @@ elasticsearch.password: "changeme"</pre>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics break &lt;scenario&gt;</span><span class="cmd-desc">inject a Synthetics failure scenario (agent-offline, revision-mismatch, zero-data, fleet-degraded, orphaned-data, policy-disabled, orphaned-policy, agent-unenrolled, service-disabled, all)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics fix &lt;scenario&gt;</span><span class="cmd-desc">restore from a failure scenario (same options as break, plus <code>all</code> for full restore)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics reset</span><span class="cmd-desc">wipe all Fleet + Synthetics state (monitors, locations, agents, agent records, policies, .fleet-* indices, API key, orphaned data) — restart Kibana after</span></div>
+      <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-data.sh synthetics heartbeat deploy|annotate|verify|status|reset</span><span class="cmd-desc">k8s autodiscovery heartbeat monitors — deploy Agent to minikube, annotate otel-demo Services, verify pings in synthetics-* (needs minikube + otel demo; see references/heartbeat-autodiscovery.md)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh lint</span><span class="cmd-desc">eslint on changed .ts/.tsx/.js files (scoped to branch via merge-base)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh typecheck</span><span class="cmd-desc">tsc per changed plugin (scoped to branch)</span></div>
       <div class="cmd-row"><span class="cmd-text" style="color:var(--purple)">run-checks.sh jest</span><span class="cmd-desc">jest per changed plugin (scoped to branch)</span></div>
