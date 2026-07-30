@@ -24,13 +24,16 @@ TEAM_REPO="${TEAM_REPO:-$HOME/Documents/Development/observability-dev}"
 SKILL_DEST="$TEAM_REPO/docs/actionable-obs/ai_helpers/skills/kibana-dev-env"
 
 # Scripts to include in the skill (source of truth is project root)
+# NOTE: kibana.dev.yml.template is intentionally NOT synced — the local copy
+# holds real dev config (cluster creds, preconfigured connectors incl. secrets)
+# and must not leak into the shared team repo. Share a sanitized
+# kibana.dev.yml.template.example instead if the team needs a template.
 SCRIPTS=(
   dev-start.sh
   kbn-start.sh
   run-checks.sh
   run-data.sh
   generate-monitors.js
-  kibana.dev.yml.template
   kibana-dev.conf.example
   kibana-remote-es.yml.example
 )
