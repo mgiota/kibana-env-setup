@@ -1314,6 +1314,11 @@ YAML
 
           echo "▶ Applying manifest…"
           kubectl apply -f "$HB_MANIFEST"
+          # The rotated key lands in the configmap, so `apply` reports the Deployment
+          # "unchanged" and the running pod keeps the OLD (just-invalidated) key —
+          # silently going stale. Force a new pod so it loads the fresh key.
+          echo "▶ Restarting agent to load the fresh key…"
+          kubectl rollout restart deployment/elastic-agent-synthetics -n "$HB_AGENT_NS"
           kubectl rollout status deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --timeout=120s || true
         }
 
