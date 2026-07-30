@@ -231,7 +231,7 @@ run-data synthetics                     # Create synthetics private location (Fl
 run-data synthetics break <scenario>    # Trigger a Synthetics failure scenario
 run-data synthetics fix <scenario>      # Restore from a failure scenario
 run-data synthetics reset               # Wipe all Fleet + Synthetics state (monitors, locations, agents, agent records, policies, .fleet-* indices, API key, orphaned data)
-run-data synthetics heartbeat <cmd>     # k8s autodiscovery heartbeat monitors (deploy/annotate/verify/status/reset)
+run-data synthetics heartbeat <cmd>     # k8s autodiscovery heartbeat monitors (up/deploy/annotate/verify/clear/status/reset)
 ```
 
 `run-data.sh` reads ES host and credentials from `config/kibana.dev.yml`,
@@ -287,20 +287,28 @@ saved object. This is the input the Synthetics app's read-only heartbeat-monitor
 surfacing consumes.
 
 ```bash
+run-data synthetics heartbeat up          # one-shot: minikube → otel demo → deploy → annotate → wait → verify
 run-data synthetics heartbeat deploy      # install synthetics pkg, create scoped API key, deploy Agent
 run-data synthetics heartbeat annotate    # annotate otel-demo Services → autodiscovered monitors
 run-data synthetics heartbeat verify      # check synthetics-* pings (+ location/space fields)
+run-data synthetics heartbeat clear       # delete only ping data (monitors vanish from UI; Agent repopulates)
 run-data synthetics heartbeat status      # Agent pod + recent logs
-run-data synthetics heartbeat reset       # delete Agent, annotations, pings, API key
+run-data synthetics heartbeat reset       # full teardown: delete Agent, annotations, pings, API key
 ```
 
-**Prerequisites** (not automated — heavy, existing Kibana tooling): minikube
-running and the OpenTelemetry demo deployed, which supplies the Services to
-annotate:
+**`up` handles the prerequisites for you** — it starts minikube if needed and
+deploys the OpenTelemetry demo (which supplies the Services to annotate) if its
+namespace is missing, then runs deploy → annotate → verify. On remote/oblt-cli
+ES pass the superuser, and `up` reuses those creds for the otel-demo deploy too
+(exported as `KIBANA_*`/`ELASTICSEARCH_*`); tune the post-annotate wait with
+`HB_WAIT=<seconds>` (default 75):
 
 ```bash
-node ./scripts/otel_demo.js --config config/kibana.dev.yml
+DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat up
 ```
+
+The individual subcommands above assume minikube is already running and the demo
+is deployed (`node ./scripts/otel_demo.js --config config/kibana.dev.yml`).
 
 Key facts the command handles automatically:
 - Derives the Agent image from the repo's `package.json` (`<version>-SNAPSHOT`).

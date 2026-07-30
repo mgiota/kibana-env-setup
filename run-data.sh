@@ -981,6 +981,7 @@ except: pass
         local HB_NS_DEFAULT="otel-demo"       # namespace whose Services we monitor
         local HB_AGENT_NS="kube-system"        # where the Agent runs
         local HB_MANIFEST="/tmp/kbn-dev-agent-synthetics.yaml"
+        local HB_KEY_NAME="kbn-dev-synthetics-agent"  # ES API key name for the Agent output
         local HB_VERSION HB_IMAGE
         HB_VERSION=$(grep -m1 '"version"' package.json | sed 's/.*: *"//; s/".*//')
         HB_IMAGE="docker.elastic.co/elastic-agent/elastic-agent:${HB_VERSION}-SNAPSHOT"
@@ -1256,88 +1257,85 @@ YAML
           done
         }
 
-        case "$3" in
-          deploy)
-            _hb_need kubectl || exit 1
-            _hb_need minikube || exit 1
-            _hb_need docker || exit 1
+        # deploy/annotate/verify extracted so the one-shot `up` can reuse them.
+        _hb_deploy() {
+          _hb_need kubectl || return 1
+          _hb_need minikube || return 1
+          _hb_need docker || return 1
 
-            if ! minikube status >/dev/null 2>&1; then
-              echo "❌  minikube is not running (otel_demo.js won't auto-start it)."
-              echo ""
-              _hb_minikube_info
-              exit 1
-            fi
-            if ! kubectl get ns "$HB_NS_DEFAULT" >/dev/null 2>&1; then
-              echo "⚠  Namespace '$HB_NS_DEFAULT' not found — it provides the Services to monitor."
-              echo "    node ./scripts/otel_demo.js --config config/kibana.dev.yml"
-              echo "   Continuing; you can annotate Services in another namespace manually."
-            fi
-            if [[ "$IS_REMOTE" != true ]]; then
-              echo "⚠  ES host is local ($ES_HOST). The in-cluster Agent likely can't reach it;"
-              echo "   this flow targets remote ES (oblt-cli). Pings may not land."
-            fi
-
-            echo "▶ Installing synthetics integration package…"
-            curl -s -X POST "$KIBANA_URL/api/fleet/epm/packages/synthetics" \
-              -u "$AUTH" -H "kbn-xsrf: true" -H "Content-Type: application/json" \
-              -d '{"force":true}' >/dev/null 2>&1
-            echo "   done."
-
-            echo "▶ Creating scoped ES API key for the Agent output…"
-            local key_resp key_pair
-            key_resp=$(curl -s -k -X POST "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
-              -H "Content-Type: application/json" -d '{
-                "name":"kbn-dev-synthetics-agent",
-                "role_descriptors":{"synthetics_writer":{"cluster":["monitor"],
-                "indices":[{"names":["synthetics-*"],"privileges":["auto_configure","create_doc"]}]}}
-              }' 2>/dev/null)
-            key_pair=$(echo "$key_resp" | python3 -c \
-              "import sys,json; d=json.load(sys.stdin); print(d['id']+':'+d['api_key'])" 2>/dev/null)
-            if [[ -z "$key_pair" ]]; then
-              echo "❌  Could not create API key. Response:"; echo "$key_resp"; exit 1
-            fi
-            echo "   API key created."
-
-            echo "▶ Generating manifest → $HB_MANIFEST"
-            echo "   image: $HB_IMAGE"
-            echo "   es:    $ES_HOST"
-            _hb_write_manifest "$ES_HOST" "$key_pair" "$HB_IMAGE" "$HB_AGENT_NS" > "$HB_MANIFEST"
-
-            echo "▶ Applying manifest…"
-            kubectl apply -f "$HB_MANIFEST"
-            kubectl rollout status deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --timeout=120s || true
+          if ! minikube status >/dev/null 2>&1; then
+            echo "❌  minikube is not running (otel_demo.js won't auto-start it)."
             echo ""
-            echo "✅  Agent deployed. Next: run-data synthetics heartbeat annotate"
-            ;;
+            _hb_minikube_info
+            return 1
+          fi
+          if ! kubectl get ns "$HB_NS_DEFAULT" >/dev/null 2>&1; then
+            echo "⚠  Namespace '$HB_NS_DEFAULT' not found — it provides the Services to monitor."
+            echo "    node ./scripts/otel_demo.js --config config/kibana.dev.yml"
+            echo "   Continuing; you can annotate Services in another namespace manually."
+          fi
+          if [[ "$IS_REMOTE" != true ]]; then
+            echo "⚠  ES host is local ($ES_HOST). The in-cluster Agent likely can't reach it;"
+            echo "   this flow targets remote ES (oblt-cli). Pings may not land."
+          fi
 
-          annotate)
-            _hb_need kubectl || exit 1
-            local ns="${4:-$HB_NS_DEFAULT}"
-            echo "▶ Annotating Services in namespace '$ns' (co.elastic.monitor/*)…"
-            _hb_annotate_services "$ns"
-            echo ""
-            echo "✅  Annotated. Pings land within ~1 min. Next — verify:"
-            if [[ "$IS_REMOTE" == true ]]; then
-              echo "    DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat verify"
-              echo "    (remote ES needs the superuser — admin pw is in config's loginAssistanceMessage)"
-            else
-              echo "    run-data synthetics heartbeat verify"
-            fi
-            ;;
+          echo "▶ Installing synthetics integration package…"
+          curl -s -X POST "$KIBANA_URL/api/fleet/epm/packages/synthetics" \
+            -u "$AUTH" -H "kbn-xsrf: true" -H "Content-Type: application/json" \
+            -d '{"force":true}' >/dev/null 2>&1
+          echo "   done."
 
-          verify)
-            echo "▶ Checking synthetics-* for autodiscovery pings…"
-            local cnt sample
-            cnt=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" \
-              -H "Content-Type: application/json" \
-              -d '{"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null \
-              | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
-            echo "   k8s-autodiscover pings: ${cnt:-0}"
-            sample=$(curl -s -k "$ES_HOST/synthetics-*/_search" -u "$ES_AUTH" \
-              -H "Content-Type: application/json" \
-              -d '{"size":1,"sort":[{"@timestamp":"desc"}],"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null)
-            echo "$sample" | python3 -c "
+          # ES lets multiple keys share a name, so re-running deploy would otherwise
+          # leave orphaned keys behind. Invalidate any prior key of this name first.
+          echo "▶ Invalidating any existing '$HB_KEY_NAME' API keys…"
+          curl -s -k -X DELETE "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"$HB_KEY_NAME\"}" >/dev/null 2>&1
+
+          echo "▶ Creating scoped ES API key for the Agent output…"
+          local key_resp key_pair
+          key_resp=$(curl -s -k -X POST "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
+            -H "Content-Type: application/json" -d "{
+              \"name\":\"$HB_KEY_NAME\",
+              \"role_descriptors\":{\"synthetics_writer\":{\"cluster\":[\"monitor\"],
+              \"indices\":[{\"names\":[\"synthetics-*\"],\"privileges\":[\"auto_configure\",\"create_doc\"]}]}}
+            }" 2>/dev/null)
+          key_pair=$(echo "$key_resp" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(d['id']+':'+d['api_key'])" 2>/dev/null)
+          if [[ -z "$key_pair" ]]; then
+            echo "❌  Could not create API key. Response:"; echo "$key_resp"; return 1
+          fi
+          echo "   API key created."
+
+          echo "▶ Generating manifest → $HB_MANIFEST"
+          echo "   image: $HB_IMAGE"
+          echo "   es:    $ES_HOST"
+          _hb_write_manifest "$ES_HOST" "$key_pair" "$HB_IMAGE" "$HB_AGENT_NS" > "$HB_MANIFEST"
+
+          echo "▶ Applying manifest…"
+          kubectl apply -f "$HB_MANIFEST"
+          kubectl rollout status deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --timeout=120s || true
+        }
+
+        _hb_do_annotate() {
+          _hb_need kubectl || return 1
+          local ns="${1:-$HB_NS_DEFAULT}"
+          echo "▶ Annotating Services in namespace '$ns' (co.elastic.monitor/*)…"
+          _hb_annotate_services "$ns"
+        }
+
+        _hb_verify() {
+          echo "▶ Checking synthetics-* for autodiscovery pings…"
+          local cnt sample
+          cnt=$(curl -s -k "$ES_HOST/synthetics-*/_count" -u "$ES_AUTH" \
+            -H "Content-Type: application/json" \
+            -d '{"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+          echo "   k8s-autodiscover pings: ${cnt:-0}"
+          sample=$(curl -s -k "$ES_HOST/synthetics-*/_search" -u "$ES_AUTH" \
+            -H "Content-Type: application/json" \
+            -d '{"size":1,"sort":[{"@timestamp":"desc"}],"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null)
+          echo "$sample" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 hits = d.get('hits', {}).get('hits', [])
@@ -1350,6 +1348,94 @@ print('   monitor.status    :', s.get('monitor', {}).get('status'))
 print('   observer.geo.name :', (s.get('observer', {}) or {}).get('geo', {}).get('name', '<absent>'))
 print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<absent>'))
 " 2>/dev/null || { echo "   Could not parse a sample doc:"; echo "$sample" | head -c 300; }
+        }
+
+        case "$3" in
+          up|all)
+            # One-shot: minikube → otel demo → deploy → annotate → verify.
+            _hb_need minikube || exit 1
+            _hb_need kubectl || exit 1
+            _hb_need docker || exit 1
+            _hb_need node || exit 1
+            local ns="${4:-$HB_NS_DEFAULT}"
+
+            echo "══ 1/5  minikube ══"
+            if minikube status >/dev/null 2>&1; then
+              echo "✓ minikube already running."
+            else
+              echo "▶ Starting minikube…"
+              minikube start --driver=docker --memory=4096 --cpus=4 \
+                || { echo "❌  minikube start failed."; echo ""; _hb_minikube_info; exit 1; }
+            fi
+
+            echo ""
+            echo "══ 2/5  OpenTelemetry demo (Services to monitor) ══"
+            if kubectl get ns "$ns" >/dev/null 2>&1; then
+              echo "✓ namespace '$ns' already present — skipping otel demo deploy."
+            else
+              echo "▶ Deploying otel demo via ./scripts/otel_demo.js…"
+              # otel_demo.js reads KIBANA_* / ELASTICSEARCH_* env, NOT the yml's
+              # kibana_system_user creds — reuse the superuser DATA_* here so it
+              # authenticates on oblt-cli (admin) clusters.
+              KIBANA_USERNAME="$DATA_USERNAME" KIBANA_PASSWORD="$DATA_PASSWORD" \
+              ELASTICSEARCH_USERNAME="$DATA_USERNAME" ELASTICSEARCH_PASSWORD="$DATA_PASSWORD" \
+                node ./scripts/otel_demo.js --config "$YML" \
+                || { echo "❌  otel_demo.js failed (see error above)."; exit 1; }
+            fi
+
+            echo ""
+            echo "══ 3/5  deploy Elastic Agent ══"
+            _hb_deploy || exit 1
+
+            echo ""
+            echo "══ 4/5  annotate Services ══"
+            _hb_do_annotate "$ns" || exit 1
+
+            echo ""
+            echo "══ 5/5  wait for first pings + verify ══"
+            echo "⏳  Waiting ${HB_WAIT:-75}s for autodiscovery to emit pings…"
+            sleep "${HB_WAIT:-75}"
+            _hb_verify
+            echo ""
+            echo "✅  Heartbeat flow complete. Open the Synthetics overview to see the monitors."
+            echo "    Re-check anytime: run-data synthetics heartbeat verify"
+            ;;
+
+          deploy)
+            _hb_deploy || exit 1
+            echo ""
+            echo "✅  Agent deployed. Next: run-data synthetics heartbeat annotate"
+            ;;
+
+          annotate)
+            _hb_do_annotate "${4:-}" || exit 1
+            echo ""
+            echo "✅  Annotated. Pings land within ~1 min. Next — verify:"
+            if [[ "$IS_REMOTE" == true ]]; then
+              echo "    DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat verify"
+              echo "    (remote ES needs the superuser — admin pw is in config's loginAssistanceMessage)"
+            else
+              echo "    run-data synthetics heartbeat verify"
+            fi
+            ;;
+
+          verify)
+            _hb_verify
+            ;;
+
+          clear)
+            # Data-only wipe: drop the pings so monitors vanish from the UI, but
+            # keep the Agent + Service annotations so they repopulate on the next
+            # check. Use `reset` for a full teardown.
+            echo "▶ Deleting k8s-autodiscover pings from synthetics-* (keeping Agent + annotations)…"
+            local del
+            del=$(curl -s -k -X POST "$ES_HOST/synthetics-*/_delete_by_query?conflicts=proceed" \
+              -u "$ES_AUTH" -H "Content-Type: application/json" \
+              -d '{"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('deleted',0))" 2>/dev/null)
+            echo "   deleted pings: ${del:-0}"
+            echo "✅  Cleared. Monitors drop from the UI until the Agent re-pings (~1 min)."
+            echo "    Agent + annotations left in place — use 'reset' for a full teardown."
             ;;
 
           status)
@@ -1390,20 +1476,26 @@ print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<abse
             echo "▶ Invalidating the Agent API key…"
             curl -s -k -X DELETE "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
               -H "Content-Type: application/json" \
-              -d '{"name":"kbn-dev-synthetics-agent"}' >/dev/null 2>&1
+              -d "{\"name\":\"$HB_KEY_NAME\"}" >/dev/null 2>&1
             echo "✅  Heartbeat autodiscovery teardown complete."
             ;;
 
           *)
-            echo "Usage: run-data synthetics heartbeat <deploy|annotate|verify|status|reset> [namespace]"
+            echo "Usage: run-data synthetics heartbeat <up|deploy|annotate|verify|clear|status|reset> [namespace]"
             echo ""
+            echo "  up          One-shot: start minikube → otel demo → deploy → annotate → verify"
             echo "  deploy      Install synthetics pkg, create API key, deploy Agent to minikube"
             echo "  annotate    Annotate otel-demo Services to drive autodiscovered monitors"
             echo "  verify      Check synthetics-* pings landed (+ location/space fields)"
+            echo "  clear       Delete only the ping data (monitors vanish from UI; Agent repopulates)"
             echo "  status      Show Agent pod + recent logs"
-            echo "  reset       Delete Agent, annotations, pings, and API key"
+            echo "  reset       Delete Agent, annotations, pings, and API key (full teardown)"
             echo ""
-            echo "  Prereq: minikube running + otel demo (node ./scripts/otel_demo.js)."
+            echo "  up handles the prereqs for you (minikube + otel demo); the individual"
+            echo "  subcommands assume minikube is running and the otel demo is deployed."
+            echo "  On remote/oblt-cli ES pass the superuser, e.g.:"
+            echo "    DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat up"
+            echo "  Override the post-annotate wait with HB_WAIT=<seconds> (default 75)."
             echo "  See references/heartbeat-autodiscovery.md for the full runbook."
             echo ""
             _hb_minikube_info
@@ -1421,7 +1513,7 @@ print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<abse
         echo "  break <s>   Trigger failure scenario <s>"
         echo "  fix <s>     Restore from failure scenario <s>"
         echo "  reset       Wipe all Fleet + Synthetics state"
-        echo "  heartbeat <c>  k8s autodiscovery heartbeat monitors (deploy/annotate/verify/status/reset)"
+        echo "  heartbeat <c>  k8s autodiscovery heartbeat monitors (up/deploy/annotate/verify/clear/status/reset)"
         echo ""
         echo "Run 'run-data synthetics break help' for scenario list."
         echo "Run 'run-data synthetics heartbeat' for the heartbeat subcommands."

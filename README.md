@@ -309,21 +309,27 @@ run-data.sh fleet-reset  # wipe all Fleet state (monitors, private locations, ag
 
 `run-data.sh synthetics heartbeat` sets up **read-only "heartbeat" monitors** — pings shipped straight to `synthetics-*` by an Elastic Agent running Kubernetes autodiscovery, with **no Kibana saved object** behind them. This is the input the Synthetics app's heartbeat-monitor surfacing consumes, so it's what you need to review/verify that feature.
 
-**Prerequisites:** a running **minikube** cluster with the **OpenTelemetry demo** deployed (it provides the Services that autodiscovery monitors target). The demo isn't optional — autodiscovery needs *live* k8s Services to watch, which oblt-cli's indexed oteldemo data can't provide.
+**One-shot (recommended):** `up` runs the whole pipeline — starts minikube (if needed), deploys the OpenTelemetry demo (if the namespace is missing), deploys the Agent, annotates the Services, waits, and verifies:
 
 ```bash
-minikube start --driver=docker --memory=4096 --cpus=4   # host/kubelet/apiserver → Running
-node ./scripts/otel_demo.js --config config/kibana.dev.yml   # deploy the demo Services
-```
-> On oblt-cli clusters the superuser is `admin` (not `elastic`). Pass creds via env for both the demo and the heartbeat commands: `KIBANA_USERNAME=admin KIBANA_PASSWORD='<admin-pw>'` for `otel_demo.js`, and `DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>'` for `run-data`. The admin password is in `config/kibana.dev.yml`'s `loginAssistanceMessage`.
+# local ES
+run-data.sh synthetics heartbeat up
 
-Then drive the flow:
+# remote / oblt-cli ES (superuser is `admin`, password in kibana.dev.yml's loginAssistanceMessage)
+DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data.sh synthetics heartbeat up
+```
+> `up` reuses `DATA_USERNAME`/`DATA_PASSWORD` for the otel-demo deploy too (it exports them as `KIBANA_*`/`ELASTICSEARCH_*`), so one credential set drives everything. Override the post-annotate wait with `HB_WAIT=<seconds>` (default 75).
+
+Autodiscovery needs *live* k8s Services to watch (which oblt-cli's indexed oteldemo data can't provide), which is why `up` deploys the demo into minikube.
+
+**Individual steps** (if you'd rather drive it manually, or minikube + otel demo are already up):
 ```bash
 run-data.sh synthetics heartbeat deploy     # install synthetics pkg, create API key, deploy Agent to minikube
 run-data.sh synthetics heartbeat annotate   # annotate otel-demo Services → autodiscovered monitors start pinging
 run-data.sh synthetics heartbeat verify     # confirm synthetics-* pings landed (+ location/space fields)
+run-data.sh synthetics heartbeat clear      # delete only the ping data (monitors vanish from UI; Agent repopulates)
 run-data.sh synthetics heartbeat status     # show Agent pod + recent logs
-run-data.sh synthetics heartbeat reset      # delete Agent, annotations, pings, and API key
+run-data.sh synthetics heartbeat reset      # full teardown: delete Agent, annotations, pings, and API key
 ```
 
 Pings land within ~1 min of `annotate`. See `kibana-dev-env/references/heartbeat-autodiscovery.md` for the full runbook and troubleshooting (minikube stale kubeconfig, `otel_demo.js` 401s, etc.).

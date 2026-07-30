@@ -7,9 +7,23 @@ app's read-only "heartbeat monitor" surfacing consumes (PR
 [#274947](https://github.com/elastic/kibana/pull/274947), issue
 [#273494](https://github.com/elastic/kibana/issues/273494)).
 
-Automated by: `run-data synthetics heartbeat <deploy|annotate|verify|status|reset>`.
+Automated by: `run-data synthetics heartbeat <up|deploy|annotate|verify|clear|status|reset>`
+(`clear` drops just the ping data; `reset` is the full teardown).
 This doc is the manual runbook behind that command (and the fallback when a step
 needs debugging).
+
+**Fastest path:** `run-data synthetics heartbeat up` does everything below in one
+shot — starts minikube (if needed), deploys the otel demo (if its namespace is
+missing), then deploy → annotate → wait → verify. On remote/oblt-cli ES pass the
+superuser (it's reused for the otel-demo deploy too):
+
+```bash
+DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics heartbeat up
+# HB_WAIT=<seconds> overrides the post-annotate wait (default 75)
+```
+
+Read the rest of this doc when a step fails or you want to understand the moving
+parts.
 
 ## Mental model (read this first)
 
