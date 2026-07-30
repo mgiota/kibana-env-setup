@@ -51,7 +51,25 @@ otel demo Services            standalone Elastic Agent          Elasticsearch   
 
 - `minikube` (or `kind`), `kubectl`, `docker`, `curl`, `python3`.
 - A running dev-env session (Kibana up) on the branch under test.
-- minikube running and the **otel demo deployed**:
+- **Start minikube yourself first — `otel_demo.js` does NOT auto-start it.**
+  It calls `assertMinikubeAvailable()` (throws unless `Running`) *before* the
+  auto-start `ensureMinikubeRunning()`, so you'll hit
+  `Error: minikube is not running. Please start minikube with: minikube start --driver=docker`.
+  ```bash
+  # Docker must be running first (docker driver)
+  minikube start --driver=docker --memory=4096 --cpus=4
+  minikube status        # host/kubelet/apiserver → Running, kubeconfig → Configured
+  kubectl get nodes      # 1 node, Ready
+  ```
+  **Gotcha:** never start/stop the minikube container from Docker Desktop — that
+  leaves a stale kubeconfig (`kubeconfig: Misconfigured`, kubelet/apiserver
+  `Stopped`, API port drift). Recover with:
+  ```bash
+  minikube update-context && minikube start --driver=docker
+  # or, if wedged:
+  minikube delete && minikube start --driver=docker --memory=4096 --cpus=4
+  ```
+- Then deploy the **otel demo** (supplies annotatable Services):
   ```bash
   # from the Kibana repo dir, with Kibana fully started
   node ./scripts/otel_demo.js --config config/kibana.dev.yml
@@ -61,6 +79,27 @@ otel demo Services            standalone Elastic Agent          Elasticsearch   
   `checkout:5050`, `currency:7285`, `shipping:50051`, `quote:8090`, `ad:9555`,
   `recommendation:9001`, `email:6060`, `payment:50051`, plus `valkey:6379`,
   `flagd:8013`; NodePort `frontend-external:30080`.
+
+### Why not just use oblt-cli's oteldemo?
+oblt-cli's "oteldemo" is **pre-indexed APM data** (traces/metrics/logs) in the
+remote ES — passive documents, visible in APM → Service inventory. Heartbeat
+**autodiscovery is active, not data-driven**: the in-cluster Elastic Agent's
+`providers.kubernetes` watches the k8s API for Services annotated with
+`co.elastic.monitor/*`, then TCP/HTTP-**probes** their in-cluster hosts
+(`*.svc.cluster.local`) and emits `synthetics-*` pings. oblt-cli gives you
+nothing to annotate and nothing to probe, so you **can't** skip the local
+minikube otel demo + annotate step.
+
+The correct split — which this runbook already does — is: **local minikube = the
+probe topology + agent; oblt-cli remote ES = the ping sink + Kibana** (the agent
+writes its `k8s-autodiscover` pings into the oblt ES; `ES_HOST` parsing handles
+the oblt-cli config format). Even if oblt-cli exposed a *running* k8s oteldemo
+you could `kubectl` into, don't use it: it's shared (annotating Services +
+deploying an Agent hits everyone), you couldn't shape the **location-less /
+space-less** pings this feature is about (needs control of the agent config to
+strip `observer.name` / `observer.geo.name`), and `reset` does a
+`delete_by_query` on `synthetics-*` — destructive on shared data. Local minikube
+is isolated, disposable, and lets you control the exact ping shape.
 
 ## Step 1 — install the synthetics integration package
 
