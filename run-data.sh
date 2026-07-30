@@ -1337,16 +1337,30 @@ YAML
             -d '{"size":1,"sort":[{"@timestamp":"desc"}],"query":{"term":{"tags":"k8s-autodiscover"}}}' 2>/dev/null)
           echo "$sample" | python3 -c "
 import sys, json
+from datetime import datetime, timezone
 d = json.load(sys.stdin)
 hits = d.get('hits', {}).get('hits', [])
 if not hits:
     print('   No pings yet — wait ~1 min, or check: run-data synthetics heartbeat status')
     sys.exit(0)
 s = hits[0]['_source']
+ts = s.get('@timestamp')
 print('   latest monitor.id :', s.get('monitor', {}).get('id'))
 print('   monitor.status    :', s.get('monitor', {}).get('status'))
 print('   observer.geo.name :', (s.get('observer', {}) or {}).get('geo', {}).get('name', '<absent>'))
 print('   meta.space_id     :', (s.get('meta', {}) or {}).get('space_id', '<absent>'))
+print('   latest @timestamp :', ts)
+# Staleness verdict: autodiscovery monitors ping ~every 30-60s, so anything
+# older than a few minutes means the Agent stopped shipping (e.g. dead API key).
+if ts:
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(ts.replace('Z', '+00:00'))).total_seconds()
+    mins = age / 60
+    if age <= 180:
+        print(f'   freshness         : ✅ FRESH (last ping {age:.0f}s ago)')
+    else:
+        print(f'   freshness         : ⚠️  STALE (last ping {mins:.1f} min ago) — Agent likely not shipping.')
+        print('                       Check: run-data synthetics heartbeat status  (look for 401/invalidated API key)')
+        print('                       Fix:   run-data synthetics heartbeat deploy  (fresh key + rolling restart)')
 " 2>/dev/null || { echo "   Could not parse a sample doc:"; echo "$sample" | head -c 300; }
         }
 
