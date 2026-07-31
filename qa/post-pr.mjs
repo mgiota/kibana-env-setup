@@ -141,13 +141,30 @@ function rawUrl(fork, assetsBranch, relPath) {
   return `https://raw.githubusercontent.com/${fork.owner}/${fork.repo}/${assetsBranch}/${relPath}`;
 }
 
+// qa-feature stamps are UTC ISO with `:`/`.` collapsed to `-` and `T` -> `_`
+// (e.g. "2026-07-31_17-15-04"). Render them as a readable UTC datetime.
+function humanStamp(stamp) {
+  const iso = `${stamp.replace('_', 'T').replace(/-(\d\d)-(\d\d)$/, ':$1:$2')}Z`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return stamp;
+  return `${d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'UTC',
+  })} UTC`;
+}
+
 function buildMarkdown({ summary, marker, checksMd, imageBaseUrl, noBreakages }) {
   const lines = [];
   lines.push(marker);
   lines.push(`## Feature QA — ${summary.title}`);
   lines.push('');
   lines.push(
-    `Automated feature-acceptance run against \`${summary.instance.label}\` (${summary.instance.baseUrl}) at \`${summary.stamp}\`.`
+    `Automated feature-acceptance run against \`${summary.instance.label}\` (${summary.instance.baseUrl}) at ${humanStamp(summary.stamp)}.`
   );
   lines.push('');
 
