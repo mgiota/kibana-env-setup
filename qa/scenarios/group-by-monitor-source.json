@@ -11,8 +11,12 @@
     "synthetics.groupByTourSeen": "true",
     "synthetics.autodiscoveredMonitorsTourSeen": "true"
   },
-  "_setupNote": "Local bucket is self-provisioned below. Heartbeat needs `run-data synthetics heartbeat up` (minikube+agent) and Remote needs the CCS remote to be edge-oblt (has preconfigured monitors) — both are env prerequisites, not per-run commands.",
-  "setup": [{ "cmd": "node seed-local-monitors.mjs", "optional": true }],
+  "_setupNote": "Self-provisions all three buckets. Local: creates ui monitors. Heartbeat: bulk-indexes fake autodiscovery pings (no minikube) — reads ES from QA_KIBANA_DIR/config/kibana.dev.yml. Remote: flips the CCS `useAllRemoteClusters` setting; only shows data if this is a remote (edge-oblt) setup.",
+  "setup": [
+    { "cmd": "node seed-local-monitors.mjs", "optional": true },
+    { "cmd": "node seed-heartbeat-monitors.mjs", "optional": true },
+    { "cmd": "node enable-remote-clusters.mjs", "optional": true }
+  ],
   "masks": [],
   "steps": [
     {
