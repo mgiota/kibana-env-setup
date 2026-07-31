@@ -103,9 +103,10 @@ function publishAssets({ kibanaDir, forkRemote, assetsBranch, fork, pr, stamp, p
       run('git', ['-C', kibanaDir, 'worktree', 'add', '-B', assetsBranch, worktreeDir, `${forkRemote}/${assetsBranch}`]);
     } else {
       info(`No existing ${assetsBranch} on ${forkRemote} — creating an orphan branch.`);
-      run('git', ['-C', kibanaDir, 'worktree', 'add', '--detach', worktreeDir, 'HEAD']);
-      run('git', ['-C', worktreeDir, 'checkout', '--orphan', assetsBranch]);
-      tryRun('git', ['-C', worktreeDir, 'rm', '-rf', '.']);
+      // `worktree add --orphan` (git 2.42+) gives a clean, empty working tree.
+      // The old `checkout --orphan` + `rm -rf .` dance left the full HEAD tree
+      // staged when the `rm` silently failed, committing the entire repo.
+      run('git', ['-C', kibanaDir, 'worktree', 'add', '--orphan', '-b', assetsBranch, worktreeDir]);
     }
 
     const destAbs = path.join(worktreeDir, destRel);
