@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { ok, info, warn, err, login, waitForKibana } from './lib/kibana.mjs';
+import { ok, info, warn, err, login, apiLogin, waitForKibana } from './lib/kibana.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -285,6 +285,10 @@ async function main() {
   info(`Scenario: ${cfg.title} against ${cfg.instance.baseUrl}`);
 
   const browser = await chromium.launch({ headless: !args.headed });
+  // NB: do NOT set bypassCSP — Kibana runs a deliberately un-nonced inline script
+  // as a CSP self-test; if CSP is bypassed that script executes and Kibana decides
+  // the browser is insecure ("Please upgrade your browser"). Real Chromium enforces
+  // the nonce'd CSP correctly, so the app boots normally.
   const context = await browser.newContext({ viewport: cfg.viewport, ignoreHTTPSErrors: true });
   const breakages = [];
   const screenshots = [];
@@ -301,11 +305,17 @@ async function main() {
     );
     if (!up) warn('Kibana never reported available — continuing anyway.');
 
+    // Prefer API login (sets the session cookie on the shared context jar) so we
+    // don't depend on the login form rendering; fall back to the form if needed.
+    const apiOk = await apiLogin(context.request, cfg.instance.baseUrl, cfg.auth);
     const page = await context.newPage();
     attachBreakageListeners(page, breakages);
-
-    const didLogin = await login(page, cfg.instance.baseUrl, cfg.auth, cfg.navTimeoutMs);
-    ok(didLogin ? 'logged in' : 'no login required');
+    if (apiOk) {
+      ok('logged in (api)');
+    } else {
+      const didLogin = await login(page, cfg.instance.baseUrl, cfg.auth, cfg.navTimeoutMs);
+      ok(didLogin ? 'logged in (form)' : 'no login required');
+    }
 
     for (const step of cfg.steps) {
       const label = stepLabel(step);

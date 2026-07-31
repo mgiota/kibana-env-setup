@@ -1,0 +1,37 @@
+{
+  "$schema": "Hero 1 — the 9.4.3 regression: non-space-aware Fleet blocks private-location creation in a non-default space with 'Invalid spaces ... spaces []'. Run against a 9.4.3 instance (seed WITHOUT --enable-space-awareness).",
+  "name": "pl-943-nonSA-error",
+  "title": "Private locations — 9.4.3 non-space-aware creation blocked (Invalid spaces)",
+  "instance": { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1200,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [".echChart", "[data-test-subj=\"last-run-time\"]"],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/s/naims/app/synthetics/settings/private-locations",
+      "waitFor": { "testSubj": "kibanaChrome" }
+    },
+    { "action": "click", "testSubj": "addPrivateLocationButton", "optional": true, "timeoutMs": 15000 },
+    { "action": "click", "testSubj": "syntheticsEmptyLocationsButton", "optional": true, "timeoutMs": 15000 },
+    { "action": "waitFor", "testSubj": "syntheticsLocationFormFieldText" },
+    { "action": "fill", "testSubj": "syntheticsLocationFormFieldText", "value": "qa-hero-943-nonsa" },
+    { "action": "click", "testSubj": "syntheticsAgentPolicySelect" },
+    { "action": "click", "selector": "[role=\"option\"]", "settleMs": 600 },
+    {
+      "action": "screenshot",
+      "name": "01-flyout-autofilled-spaces",
+      "caption": "Flyout with agent policy picked; Spaces auto-filled from available spaces (non-space-aware)"
+    },
+    { "action": "click", "testSubj": "syntheticsLocationFlyoutSaveButton" },
+    { "action": "waitFor", "text": "Invalid spaces", "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "02-invalid-spaces-error",
+      "caption": "Server rejects creation: 'Invalid spaces ... must be fully contained within agent policy X spaces []'"
+    }
+  ]
+}

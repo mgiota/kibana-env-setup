@@ -8,7 +8,16 @@
   "settleMs": 1500,
   "masks": [".echChart", "[data-test-subj=\"last-run-time\"]", "[data-test-subj=\"monitorLastRunTime\"]"],
   "steps": [
-    { "action": "goto", "path": "/app/synthetics/monitors", "waitFor": { "selector": "main" } },
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "kibanaChrome" }
+    },
+    {
+      "action": "waitFor",
+      "testSubj": "syntheticsMonitorList-loaded",
+      "note": "monitor list finished loading (vs -loading placeholder)"
+    },
     {
       "action": "screenshot",
       "name": "monitors-page",

@@ -21,6 +21,32 @@ export const info = (m) => console.log(`${C.b}\u2192${C.x} ${m}`);
 export const warn = (m) => console.log(`${C.y}!${C.x} ${m}`);
 export const err = (m) => console.log(`${C.r}\u2717${C.x} ${m}`);
 
+// ── API login: set the session cookie directly on the browser context ─
+// Preferred over driving the form — it is immune to the login page failing to
+// render (e.g. CSP blocking its inline bootstrap script in headless Chromium).
+// The APIRequestContext from `context.request` shares the cookie jar with the
+// context's pages, so a successful call authenticates subsequent navigations.
+export async function apiLogin(request, baseUrl, auth) {
+  try {
+    const res = await request.post(`${baseUrl}/internal/security/login`, {
+      headers: {
+        'kbn-xsrf': 'true',
+        'Content-Type': 'application/json',
+        'x-elastic-internal-origin': 'kibana',
+      },
+      data: {
+        providerType: 'basic',
+        providerName: 'basic',
+        currentURL: `${baseUrl}/login`,
+        params: { username: auth.username, password: auth.password },
+      },
+    });
+    return res.ok();
+  } catch {
+    return false;
+  }
+}
+
 // ── login once per instance (form-based Kibana security login) ─
 export async function login(page, baseUrl, auth, timeout) {
   await page.goto(`${baseUrl}/login?next=%2F`, { waitUntil: 'domcontentloaded', timeout });

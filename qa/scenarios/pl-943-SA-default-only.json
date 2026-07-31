@@ -1,0 +1,31 @@
+{
+  "$schema": "Hero 2 — the space-aware constraint: once Fleet is space-aware, an agent policy in `default` (space_ids: ['default']) offers only `default` in the flyout's Spaces field, so a location cannot be scoped to `naims` directly. Run against a 9.4.3 instance seeded WITH --enable-space-awareness.",
+  "name": "pl-943-SA-default-only",
+  "title": "Private locations — space-aware policy offers only its own space",
+  "instance": { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1200,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [".echChart", "[data-test-subj=\"last-run-time\"]"],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/s/naims/app/synthetics/settings/private-locations",
+      "waitFor": { "testSubj": "kibanaChrome" }
+    },
+    { "action": "click", "testSubj": "addPrivateLocationButton", "optional": true, "timeoutMs": 15000 },
+    { "action": "click", "testSubj": "syntheticsEmptyLocationsButton", "optional": true, "timeoutMs": 15000 },
+    { "action": "waitFor", "testSubj": "syntheticsLocationFormFieldText" },
+    { "action": "fill", "testSubj": "syntheticsLocationFormFieldText", "value": "qa-hero-943-sa" },
+    { "action": "click", "testSubj": "syntheticsAgentPolicySelect" },
+    { "action": "click", "selector": "[role=\"option\"]", "settleMs": 600 },
+    { "action": "click", "selector": "[data-test-subj=\"comboBoxSearchInput\"]", "settleMs": 600 },
+    {
+      "action": "screenshot",
+      "name": "01-spaces-options-default-only",
+      "caption": "Spaces dropdown for a default-scoped policy offers only 'default' — cannot scope the location to 'naims'"
+    }
+  ]
+}

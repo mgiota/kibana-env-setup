@@ -4,3 +4,7 @@
 # secrets. Never commit it; share the sanitized
 # kibana.dev.yml.template.example instead (copy it to this path locally).
 kibana.dev.yml.template
+
+qa/node_modules/
+qa/runs/
+qa-runs/
