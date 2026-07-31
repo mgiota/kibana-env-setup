@@ -34,6 +34,9 @@ function parseArgs(argv) {
     user: process.env.QA_KIBANA_USERNAME || 'elastic',
     pass: process.env.QA_KIBANA_PASSWORD || 'changeme',
     count: 2,
+    // Isolate seeded monitors in a dedicated space so they never pollute the
+    // real monitor list — wiping = deleting the space. Use 'default' to opt out.
+    space: 'qa',
   };
   for (let i = 2; i < argv.length; i++) {
     const t = argv[i];
@@ -41,8 +44,9 @@ function parseArgs(argv) {
     else if (t === '--user') a.user = argv[++i];
     else if (t === '--pass') a.pass = argv[++i];
     else if (t === '--count') a.count = Number(argv[++i]);
+    else if (t === '--space') a.space = argv[++i];
     else if (t === '--help' || t === '-h') {
-      console.log('seed-local-monitors --base-url URL [--count N] [--user U] [--pass P]');
+      console.log('seed-local-monitors --base-url URL [--count N] [--space ID] [--user U] [--pass P]');
       process.exit(0);
     } else {
       err(`Unknown arg: ${t}`);
@@ -52,11 +56,33 @@ function parseArgs(argv) {
   return a;
 }
 
+async function ensureSpace(rootRequest, spaceId) {
+  const existing = await rootRequest(`/api/spaces/space/${spaceId}`).catch(() => undefined);
+  if (existing?.id) {
+    ok(`space "${spaceId}" already exists`);
+    return;
+  }
+  await rootRequest('/api/spaces/space', {
+    method: 'POST',
+    body: { id: spaceId, name: spaceId },
+  });
+  ok(`created space "${spaceId}"`);
+}
+
 async function main() {
   const args = parseArgs(process.argv);
-  const request = createApi(args.baseUrl, { username: args.user, password: args.pass });
+  const auth = { username: args.user, password: args.pass };
+  const rootRequest = createApi(args.baseUrl, auth);
 
-  info(`Seeding ${args.count} local monitor(s) on ${args.baseUrl}`);
+  const isDefault = !args.space || args.space === 'default';
+  if (!isDefault) {
+    await ensureSpace(rootRequest, args.space);
+  }
+  // Scope every synthetics call to the target space by pointing the API base at
+  // it; the space prefix flows into all lib helpers automatically.
+  const request = isDefault ? rootRequest : createApi(`${args.baseUrl}/s/${args.space}`, auth);
+
+  info(`Seeding ${args.count} local monitor(s) on ${args.baseUrl} (space=${args.space})`);
 
   await ensureEnabled(request);
   const location = await ensurePrivateLocation(request, NAME_PREFIX);

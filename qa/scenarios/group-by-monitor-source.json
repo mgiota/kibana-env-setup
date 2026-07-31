@@ -11,17 +11,16 @@
     "synthetics.groupByTourSeen": "true",
     "synthetics.autodiscoveredMonitorsTourSeen": "true"
   },
-  "_setupNote": "Self-provisions all three buckets. Local: creates ui monitors. Heartbeat: bulk-indexes fake autodiscovery pings (no minikube) — reads ES from QA_KIBANA_DIR/config/kibana.dev.yml. Remote: flips the CCS `useAllRemoteClusters` setting; only shows data if this is a remote (edge-oblt) setup.",
+  "_setupNote": "Deterministic Heartbeat + Local shot in an isolated `qa` space so seeded monitors never pollute the real list (wipe = delete the space). Local: ui monitors created in the qa space. Heartbeat: bulk-indexed autodiscovery pings (no minikube, space-less → visible in every space) — ES read from QA_KIBANA_DIR/config/kibana.dev.yml. Remote is intentionally NOT here: a remote (CCS) monitor carries the remote's own `meta.space_id` (default), so a single qa view filters it out regardless of the CCS setting's space list. See group-by-remote-cluster.json for the Remote-cluster split (runs in the default space where the remote monitor lives).",
   "setup": [
-    { "cmd": "node seed-local-monitors.mjs", "optional": true },
-    { "cmd": "node seed-heartbeat-monitors.mjs", "optional": true },
-    { "cmd": "node enable-remote-clusters.mjs", "optional": true }
+    { "cmd": "node seed-local-monitors.mjs --space qa", "optional": true },
+    { "cmd": "node seed-heartbeat-monitors.mjs", "optional": true }
   ],
   "masks": [],
   "steps": [
     {
       "action": "goto",
-      "path": "/app/synthetics/",
+      "path": "/s/qa/app/synthetics/",
       "waitFor": { "testSubj": "syntheticsOverviewGroupButton" }
     },
     {
@@ -41,18 +40,8 @@
     {
       "action": "screenshot",
       "name": "03-groupby-monitor-source",
-      "caption": "Grouped by Monitor source: Heartbeat / Remote / Local buckets",
+      "caption": "Grouped by Monitor source: Heartbeat + Local buckets (Remote lives in the default space — see the group-by-remote-cluster scenario)",
       "fullPage": true
-    },
-    { "action": "click", "testSubj": "syntheticsGroupMenuButton", "timeoutMs": 15000, "optional": true },
-    { "action": "click", "selector": ".euiContextMenuItem:has-text(\"Remote cluster\")", "timeoutMs": 15000, "optional": true },
-    { "action": "waitFor", "text": "Heartbeat monitors", "timeoutMs": 15000, "optional": true },
-    {
-      "action": "screenshot",
-      "name": "04-groupby-remote-cluster",
-      "caption": "Grouped by Remote cluster: Heartbeat monitors split out of Local (only when non-heartbeat remote monitors exist)",
-      "fullPage": true,
-      "optional": true
     }
   ]
 }

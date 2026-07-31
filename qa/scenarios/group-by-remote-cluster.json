@@ -1,0 +1,47 @@
+{
+  "$schema": "drives the Synthetics overview Group by → Remote cluster split (BL-003, sibling of group-by-monitor-source.json)",
+  "name": "group-by-remote-cluster",
+  "title": "Synthetics — Group overview by Remote cluster (Heartbeat split out of Local)",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5602" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "localStorage": {
+    "synthetics.groupByTourSeen": "true",
+    "synthetics.autodiscoveredMonitorsTourSeen": "true"
+  },
+  "_setupNote": "Runs in the DEFAULT space — the only place all three sources coexist in a single view, because the real remote (CCS) monitor carries meta.space_id=default and a single-space view filters remote pings by that field (the CCS setting's space list does NOT override this; verified). Heartbeat: space-less autodiscovery pings (visible in every space). Remote: needs a real remote (edge-oblt) setup + the CCS `useAllRemoteClusters` setting on; the 'Remote cluster' group-by option only appears when non-heartbeat remote monitors exist. Local bucket is filled by whatever real local monitors already exist in the default space. Trade-off vs the qa scenario: this shot is NOT isolated from your real monitors.",
+  "setup": [
+    { "cmd": "node seed-heartbeat-monitors.mjs", "optional": true },
+    { "cmd": "node enable-remote-clusters.mjs", "optional": true }
+  ],
+  "masks": [],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/",
+      "waitFor": { "testSubj": "syntheticsOverviewGroupButton" }
+    },
+    {
+      "action": "screenshot",
+      "name": "01-overview-default",
+      "caption": "Overview (default space, ungrouped)"
+    },
+    { "action": "click", "testSubj": "syntheticsGroupMenuButton" },
+    { "action": "waitFor", "text": "Remote cluster", "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "02-groupby-menu-open",
+      "caption": "Group by menu — 'Remote cluster' offered because remote monitors exist"
+    },
+    { "action": "click", "selector": ".euiContextMenuItem:has-text(\"Remote cluster\")" },
+    { "action": "waitFor", "text": "Heartbeat monitors", "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "03-groupby-remote-cluster",
+      "caption": "Grouped by Remote cluster: heartbeat monitors split into their own bucket instead of being lumped into Local",
+      "fullPage": true
+    }
+  ]
+}
