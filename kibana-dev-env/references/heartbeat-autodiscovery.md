@@ -242,6 +242,31 @@ curl -s -k -u "elastic:<pw>" -X POST "<es-host>/synthetics-*/_delete_by_query?co
 `run-data synthetics heartbeat reset` does all of the above and invalidates the
 API key.
 
+## Break / repro silent staleness
+
+Autodiscovery monitors can stop shipping while the overview keeps showing them
+**Up** — there is no staleness signal in the UI yet
+([kibana#281750](https://github.com/elastic/kibana/issues/281750)). To reproduce
+it on demand:
+
+```bash
+run-data synthetics heartbeat break dead-key    # default; strongest repro
+run-data synthetics heartbeat break agent-down
+run-data synthetics heartbeat break unannotate [namespace]
+run-data synthetics heartbeat fix  <scenario>   # same names; restores shipping
+```
+
+| Scenario | What it does | Why it's realistic |
+|---|---|---|
+| `dead-key` (default) | Invalidates the Agent's ES API key **without** restarting the pod. The pod stays `Running` and keeps trying to ship with a dead key (401s). | Mirrors a rotated/expired/revoked key — the classic silent failure. `fix` runs `deploy` (fresh key + rollout restart). |
+| `agent-down` | `kubectl scale …/elastic-agent-synthetics --replicas=0`. | Agent node/pod goes away (eviction, cordon, OOM). `fix` scales back to 1 and waits for rollout. |
+| `unannotate` | Strips `co.elastic.monitor/*` from the otel-demo Services. | Someone edits/redeploys a Service without the annotations → the target disappears. `fix` re-annotates. |
+
+After a `break`, the monitor keeps showing **Up** in the overview and the flyout's
+"Last test run" stops advancing / Duration flatlines. Confirm from ES with
+`run-data synthetics heartbeat verify` — it flips to `⚠️ STALE` once the newest
+ping is older than ~3 min.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

@@ -326,7 +326,9 @@ Autodiscovery needs *live* k8s Services to watch (which oblt-cli's indexed oteld
 ```bash
 run-data.sh synthetics heartbeat deploy     # install synthetics pkg, create API key, deploy Agent to minikube
 run-data.sh synthetics heartbeat annotate   # annotate otel-demo Services → autodiscovered monitors start pinging
-run-data.sh synthetics heartbeat verify     # confirm synthetics-* pings landed (+ location/space fields)
+run-data.sh synthetics heartbeat verify     # confirm synthetics-* pings landed (+ location/space fields; FRESH/STALE verdict)
+run-data.sh synthetics heartbeat break <s>  # inject a failure: dead-key (default) | agent-down | unannotate
+run-data.sh synthetics heartbeat fix <s>    # restore from a break scenario (same names)
 run-data.sh synthetics heartbeat clear      # delete only the ping data (monitors vanish from UI; Agent repopulates)
 run-data.sh synthetics heartbeat status     # show Agent pod + recent logs
 run-data.sh synthetics heartbeat reset      # full teardown: delete Agent, annotations, pings, and API key

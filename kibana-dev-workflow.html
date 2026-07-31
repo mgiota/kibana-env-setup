@@ -1234,6 +1234,12 @@ elasticsearch.password: "changeme"</pre>
       <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics heartbeat clear</code> — delete only the ping data (monitors vanish from the UI; Agent repopulates)</p>
       <p style="font-size:0.78rem"><code>run-data synthetics heartbeat reset</code> — full teardown: delete Agent, annotations, pings, and API key</p>
     </div>
+    <div class="card card-red">
+      <div class="card-label">Break / repro silent staleness</div>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>run-data synthetics heartbeat break dead-key</code> — invalidate the Agent key but leave the pod Running → monitors keep showing <strong>Up</strong> while data silently stops (repro of <a href="https://github.com/elastic/kibana/issues/281750">kibana#281750</a>)</p>
+      <p style="font-size:0.78rem;margin-bottom:4px"><code>… break agent-down</code> — scale the Agent to 0 replicas; <code>… break unannotate</code> — strip the Service annotations</p>
+      <p style="font-size:0.78rem"><code>run-data synthetics heartbeat fix &lt;scenario&gt;</code> — restore (fresh key + rollout, scale back, or re-annotate)</p>
+    </div>
     <div class="card card-blue">
       <div class="card-label">Full runbook</div>
       <p style="font-size:0.78rem">See <code>references/heartbeat-autodiscovery.md</code> for the end-to-end walkthrough and troubleshooting (minikube stale kubeconfig, <code>otel_demo.js</code> 401s, agent pointing at a destroyed cluster).</p>

@@ -290,7 +290,9 @@ surfacing consumes.
 run-data synthetics heartbeat up          # one-shot: minikube → otel demo → deploy → annotate → wait → verify
 run-data synthetics heartbeat deploy      # install synthetics pkg, create scoped API key, deploy Agent
 run-data synthetics heartbeat annotate    # annotate otel-demo Services → autodiscovered monitors
-run-data synthetics heartbeat verify      # check synthetics-* pings (+ location/space fields)
+run-data synthetics heartbeat verify      # check synthetics-* pings (+ location/space fields; FRESH/STALE verdict)
+run-data synthetics heartbeat break <s>   # inject a failure: dead-key (default) | agent-down | unannotate
+run-data synthetics heartbeat fix <s>     # restore from a break scenario (same names)
 run-data synthetics heartbeat clear       # delete only ping data (monitors vanish from UI; Agent repopulates)
 run-data synthetics heartbeat status      # Agent pod + recent logs
 run-data synthetics heartbeat reset       # full teardown: delete Agent, annotations, pings, API key

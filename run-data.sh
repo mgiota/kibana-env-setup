@@ -1369,6 +1369,15 @@ if ts:
 " 2>/dev/null || { echo "   Could not parse a sample doc:"; echo "$sample" | head -c 300; }
         }
 
+        # Shared "what you'll see in the UI" note for the break scenarios — the
+        # whole point is that the monitor keeps looking healthy while data stops.
+        _hb_break_symptom() {
+          echo "   Expected in the Synthetics UI (the gap tracked in elastic/kibana#281750):"
+          echo "     • the monitor(s) still show as Up (green) in the overview — no staleness signal"
+          echo "     • flyout 'Last test run' stops advancing and the Duration chart flatlines"
+          echo "   Confirm from ES:  run-data synthetics heartbeat verify   (flips to ⚠️ STALE after ~3 min)"
+        }
+
         case "$3" in
           up|all)
             # One-shot: minikube → otel demo → deploy → annotate → verify.
@@ -1442,6 +1451,78 @@ if ts:
             _hb_verify
             ;;
 
+          break)
+            # Realistic ways an autodiscovery Agent stops shipping in the wild.
+            # `dead-key` is the star: pod stays Running yet data silently stops.
+            _hb_need kubectl || exit 1
+            local scenario="${4:-dead-key}"
+            case "$scenario" in
+              dead-key)
+                echo "▶ [break: dead-key] Invalidating the Agent API key '$HB_KEY_NAME' — leaving the pod running…"
+                curl -s -k -X DELETE "$ES_HOST/_security/api_key" -u "$ES_AUTH" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"name\":\"$HB_KEY_NAME\"}" >/dev/null 2>&1
+                echo "   Pod stays Running but its key is dead → it silently stops shipping (401s)."
+                _hb_break_symptom
+                echo "   Fix:  run-data synthetics heartbeat fix dead-key"
+                ;;
+              agent-down)
+                echo "▶ [break: agent-down] Scaling the Agent deployment to 0 replicas…"
+                kubectl scale deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --replicas=0 2>&1 || true
+                echo "   No Agent pod → no new pings."
+                _hb_break_symptom
+                echo "   Fix:  run-data synthetics heartbeat fix agent-down"
+                ;;
+              unannotate)
+                local ns="${5:-$HB_NS_DEFAULT}"
+                echo "▶ [break: unannotate] Removing co.elastic.monitor/* annotations from Services in '$ns'…"
+                local svc
+                for svc in frontend product-catalog cart currency; do
+                  kubectl annotate -n "$ns" service "$svc" \
+                    co.elastic.monitor/type- co.elastic.monitor/id- co.elastic.monitor/name- \
+                    co.elastic.monitor/hosts- co.elastic.monitor/schedule- co.elastic.monitor/timeout- \
+                    >/dev/null 2>&1 || true
+                done
+                echo "   Autodiscovery targets gone → those monitors stop being probed."
+                _hb_break_symptom
+                echo "   Fix:  run-data synthetics heartbeat fix unannotate [namespace]"
+                ;;
+              help|*)
+                echo "Usage: run-data synthetics heartbeat break <dead-key|agent-down|unannotate> [namespace]"
+                echo "  dead-key    Invalidate the Agent API key, keep the pod running (silent staleness; default)"
+                echo "  agent-down  Scale the Agent deployment to 0 replicas (no pings)"
+                echo "  unannotate  Strip co.elastic.monitor/* annotations from otel-demo Services [namespace]"
+                exit 1
+                ;;
+            esac
+            ;;
+
+          fix)
+            local scenario="${4:-dead-key}"
+            case "$scenario" in
+              dead-key)
+                echo "▶ [fix: dead-key] Redeploying the Agent with a fresh key…"
+                _hb_deploy || exit 1
+                ;;
+              agent-down)
+                _hb_need kubectl || exit 1
+                echo "▶ [fix: agent-down] Scaling the Agent back to 1 replica…"
+                kubectl scale deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --replicas=1 2>&1 || true
+                kubectl rollout status deployment/elastic-agent-synthetics -n "$HB_AGENT_NS" --timeout=120s || true
+                ;;
+              unannotate)
+                _hb_do_annotate "${5:-}" || exit 1
+                ;;
+              help|*)
+                echo "Usage: run-data synthetics heartbeat fix <dead-key|agent-down|unannotate> [namespace]"
+                exit 1
+                ;;
+            esac
+            echo ""
+            echo "✅  Restored. Pings resume within ~1 min — confirm with:"
+            echo "    run-data synthetics heartbeat verify"
+            ;;
+
           clear)
             # Data-only wipe: drop the pings so monitors vanish from the UI, but
             # keep the Agent + Service annotations so they repopulate on the next
@@ -1500,12 +1581,14 @@ if ts:
             ;;
 
           *)
-            echo "Usage: run-data synthetics heartbeat <up|deploy|annotate|verify|clear|status|reset> [namespace]"
+            echo "Usage: run-data synthetics heartbeat <up|deploy|annotate|verify|break|fix|clear|status|reset> [namespace]"
             echo ""
             echo "  up          One-shot: start minikube → otel demo → deploy → annotate → verify"
             echo "  deploy      Install synthetics pkg, create API key, deploy Agent to minikube"
             echo "  annotate    Annotate otel-demo Services to drive autodiscovered monitors"
             echo "  verify      Check synthetics-* pings landed (+ location/space fields)"
+            echo "  break <s>   Inject a failure (dead-key|agent-down|unannotate) to repro silent staleness"
+            echo "  fix <s>     Restore from a break scenario (dead-key|agent-down|unannotate)"
             echo "  clear       Delete only the ping data (monitors vanish from UI; Agent repopulates)"
             echo "  status      Show Agent pod + recent logs"
             echo "  reset       Delete Agent, annotations, pings, and API key (full teardown)"
