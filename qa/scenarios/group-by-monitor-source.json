@@ -1,0 +1,54 @@
+{
+  "$schema": "drives the Synthetics overview Group by → Monitor source feature (BL-003)",
+  "name": "group-by-monitor-source",
+  "title": "Synthetics — Group overview by Monitor source (Heartbeat / Remote / Local)",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5602" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "localStorage": {
+    "synthetics.groupByTourSeen": "true",
+    "synthetics.autodiscoveredMonitorsTourSeen": "true"
+  },
+  "_setupNote": "Local bucket is self-provisioned below. Heartbeat needs `run-data synthetics heartbeat up` (minikube+agent) and Remote needs the CCS remote to be edge-oblt (has preconfigured monitors) — both are env prerequisites, not per-run commands.",
+  "setup": [{ "cmd": "node seed-local-monitors.mjs", "optional": true }],
+  "masks": [],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/",
+      "waitFor": { "testSubj": "syntheticsOverviewGroupButton" }
+    },
+    {
+      "action": "screenshot",
+      "name": "01-overview-default",
+      "caption": "Overview (default, ungrouped)"
+    },
+    { "action": "click", "testSubj": "syntheticsGroupMenuButton" },
+    { "action": "waitFor", "text": "Monitor source", "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "02-groupby-menu-open",
+      "caption": "Group by menu — 'Monitor source' offered because heartbeat monitors exist"
+    },
+    { "action": "click", "selector": ".euiContextMenuItem:has-text(\"Monitor source\")" },
+    { "action": "waitFor", "text": "Heartbeat monitors", "timeoutMs": 15000 },
+    {
+      "action": "screenshot",
+      "name": "03-groupby-monitor-source",
+      "caption": "Grouped by Monitor source: Heartbeat / Remote / Local buckets",
+      "fullPage": true
+    },
+    { "action": "click", "testSubj": "syntheticsGroupMenuButton", "timeoutMs": 15000, "optional": true },
+    { "action": "click", "selector": ".euiContextMenuItem:has-text(\"Remote cluster\")", "timeoutMs": 15000, "optional": true },
+    { "action": "waitFor", "text": "Heartbeat monitors", "timeoutMs": 15000, "optional": true },
+    {
+      "action": "screenshot",
+      "name": "04-groupby-remote-cluster",
+      "caption": "Grouped by Remote cluster: Heartbeat monitors split out of Local (only when non-heartbeat remote monitors exist)",
+      "fullPage": true,
+      "optional": true
+    }
+  ]
+}

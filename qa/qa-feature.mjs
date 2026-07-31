@@ -26,6 +26,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ok, info, warn, err, login, apiLogin, waitForKibana } from './lib/kibana.mjs';
 
@@ -38,6 +39,8 @@ function parseArgs(argv) {
     out: null,
     headed: false,
     failOnBreakage: false,
+    user: null,
+    password: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const t = argv[i];
@@ -46,9 +49,11 @@ function parseArgs(argv) {
     else if (t === '--out') a.out = argv[++i];
     else if (t === '--headed') a.headed = true;
     else if (t === '--fail-on-breakage') a.failOnBreakage = true;
+    else if (t === '--user') a.user = argv[++i];
+    else if (t === '--password') a.password = argv[++i];
     else if (t === '--help' || t === '-h') {
       console.log(
-        'qa-feature --scenario FILE [--base-url URL] [--out DIR] [--headed] [--fail-on-breakage]'
+        'qa-feature --scenario FILE [--base-url URL] [--out DIR] [--headed] [--fail-on-breakage] [--user U] [--password P]'
       );
       process.exit(0);
     } else {
@@ -81,7 +86,8 @@ function resolveWaitTarget(page, waitFor) {
 async function takeScreenshot(page, cfg, dir, step, results) {
   const shotPath = path.join(dir, `${step.name}.png`);
   const mask = (cfg.masks || []).map((sel) => page.locator(sel));
-  await page.screenshot({ path: shotPath, mask, animations: 'disabled', caret: 'hide' });
+  const fullPage = step.fullPage ?? cfg.fullPage ?? false;
+  await page.screenshot({ path: shotPath, mask, fullPage, animations: 'disabled', caret: 'hide' });
   results.push({ name: step.name, caption: step.caption || step.name, file: path.basename(shotPath) });
   ok(`screenshot ${step.name}`);
 }
@@ -251,6 +257,34 @@ ${breakRows}
 </body></html>`;
 }
 
+// Run the scenario's `setup` commands (self-provisioning) before the browser
+// steps. Each entry is a shell command string, or { cmd, optional }. Seeds get
+// the target + credentials via env so they don't hardcode them.
+function runSetup(cfg, cwd) {
+  const cmds = cfg.setup ?? [];
+  if (!cmds.length) return;
+  const env = {
+    ...process.env,
+    QA_BASE_URL: cfg.instance.baseUrl,
+    QA_KIBANA_USERNAME: cfg.auth.username,
+    QA_KIBANA_PASSWORD: cfg.auth.password,
+  };
+  for (const entry of cmds) {
+    const cmd = typeof entry === 'string' ? entry : entry.cmd;
+    const optional = typeof entry === 'object' && entry.optional;
+    info(`setup: ${cmd}`);
+    const res = spawnSync(cmd, { shell: true, stdio: 'inherit', env, cwd });
+    if (res.status !== 0) {
+      if (optional) {
+        warn(`setup step failed (continuing): ${cmd}`);
+      } else {
+        err(`setup step failed: ${cmd}`);
+        process.exit(1);
+      }
+    }
+  }
+}
+
 const stepLabel = (step) =>
   step.name || step.testSubj || step.selector || step.text || step.path || step.action;
 
@@ -273,6 +307,12 @@ async function main() {
   cfg.navTimeoutMs ??= 90000;
   cfg.readinessTimeoutMs ??= 180000;
   cfg.auth ??= { username: 'elastic', password: 'changeme' };
+  // Auth override precedence: CLI flag > env > scenario file. Keeps real (e.g.
+  // oblt-cli admin) credentials out of committed scenario JSON.
+  const overrideUser = args.user || process.env.QA_KIBANA_USERNAME;
+  const overridePassword = args.password || process.env.QA_KIBANA_PASSWORD;
+  if (overrideUser) cfg.auth.username = overrideUser;
+  if (overridePassword) cfg.auth.password = overridePassword;
   if (args.baseUrl) cfg.instance.baseUrl = args.baseUrl;
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
@@ -284,12 +324,28 @@ async function main() {
   info(`Run dir: ${runDir}`);
   info(`Scenario: ${cfg.title} against ${cfg.instance.baseUrl}`);
 
+  runSetup(cfg, __dirname);
+
   const browser = await chromium.launch({ headless: !args.headed });
   // NB: do NOT set bypassCSP — Kibana runs a deliberately un-nonced inline script
   // as a CSP self-test; if CSP is bypassed that script executes and Kibana decides
   // the browser is insecure ("Please upgrade your browser"). Real Chromium enforces
   // the nonce'd CSP correctly, so the app boots normally.
   const context = await browser.newContext({ viewport: cfg.viewport, ignoreHTTPSErrors: true });
+  // Seed localStorage before any page loads so one-time tours/callouts don't
+  // obscure the feature under test. Values are stored verbatim; use the same
+  // JSON the app writes (e.g. "true" for a react-use useLocalStorage boolean).
+  if (cfg.localStorage && Object.keys(cfg.localStorage).length) {
+    await context.addInitScript((entries) => {
+      for (const [k, v] of Object.entries(entries)) {
+        try {
+          window.localStorage.setItem(k, v);
+        } catch {
+          /* storage unavailable */
+        }
+      }
+    }, cfg.localStorage);
+  }
   const breakages = [];
   const screenshots = [];
   const stepResults = [];
