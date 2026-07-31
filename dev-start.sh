@@ -61,7 +61,10 @@ STATE_FILE="${STATE_FILE:-$HOME/.kibana-dev-state}"
 KBN_START="${KBN_START:-$HOME/bin/kbn-start.sh}"
 REMOTE_ES_CONFIG="${REMOTE_ES_CONFIG:-$HOME/.kibana-remote-es.yml}"
 OBLT_CLUSTER_NAME="${OBLT_CLUSTER_NAME:-}"
-OBLT_CLUSTER_CREATE_CMD="${OBLT_CLUSTER_CREATE_CMD:-oblt-cli cluster create ccs --remote-cluster=edge-lite-oblt}"
+# Use `edge-oblt` (not `edge-lite-oblt`) as the CCS remote: edge-oblt ships with
+# preconfigured monitors, so the "Remote cluster" grouping / CCS flows have data
+# out of the box. Override via OBLT_CLUSTER_CREATE_CMD if you need a lite cluster.
+OBLT_CLUSTER_CREATE_CMD="${OBLT_CLUSTER_CREATE_CMD:-oblt-cli cluster create ccs --remote-cluster=edge-oblt}"
 
 # Script-relative paths (always derived from install location, not configurable)
 TEMPLATE="${0:A:h}/kibana.dev.yml.template"
