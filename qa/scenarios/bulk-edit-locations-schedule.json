@@ -1,0 +1,48 @@
+{
+  "$schema": "feature-acceptance scenario — see README.md",
+  "name": "bulk-edit-locations-schedule",
+  "title": "Synthetics — Bulk edit locations & schedule",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5608" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "syntheticsMonitorList-loaded" }
+    },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    { "action": "screenshot", "name": "01-monitors-selected", "caption": "All monitors selected (mix of ui + project origin)" },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    { "action": "screenshot", "name": "02-bulk-menu-open", "caption": "Bulk actions menu — Edit locations / Edit schedule / Manage maintenance windows / Delete" },
+
+    { "action": "click", "testSubj": "syntheticsBulkEditLocationsItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkLocationsFlyout" },
+    { "action": "screenshot", "name": "03-locations-flyout", "caption": "Edit locations flyout — Add mode, project monitors surfaced as skipped" },
+    {
+      "action": "comboBoxSelect",
+      "within": "syntheticsBulkLocationsComboBox",
+      "index": 0,
+      "optional": true
+    },
+    { "action": "screenshot", "name": "04-locations-selected", "caption": "Location chosen — effect summary reflects how many monitors will change", "optional": true },
+    { "action": "click", "testSubj": "syntheticsBulkLocationsCancel" },
+    { "action": "sleep", "ms": 800 },
+
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    { "action": "click", "testSubj": "syntheticsBulkEditScheduleItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkScheduleFlyout" },
+    { "action": "screenshot", "name": "05-schedule-flyout", "caption": "Edit schedule flyout — selection includes a browser monitor, so sub-minute frequencies are hidden" },
+    { "action": "click", "testSubj": "syntheticsBulkScheduleCancel" },
+    { "action": "sleep", "ms": 800 },
+
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    { "action": "screenshot", "name": "06-final", "caption": "Back to the settled monitor list" }
+  ]
+}

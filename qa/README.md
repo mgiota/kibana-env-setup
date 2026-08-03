@@ -154,8 +154,13 @@ Exit code: `0` on success, `1` if a required step failed (or any breakage with
 
 ## Scenario format
 
-A scenario is JSON: an `instance`, `masks` (selectors painted over for stable
-shots), and ordered `steps`. Each step is one action:
+A scenario is JSON: an `instance`, `masks` (selectors for dynamic regions), and
+ordered `steps`. Each step is one action.
+
+**Masks are invisible by default** in feature-acceptance runs — these screenshots
+are for human review, not pixel-diffing, so mask overlays never obscure the UI
+(no magenta boxes). Set `"maskColor"` on the scenario (any CSS color, e.g.
+`"rgba(255,0,255,1)"`) only if you deliberately want a visible overlay.
 
 | action | fields | notes |
 |---|---|---|

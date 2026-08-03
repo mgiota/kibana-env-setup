@@ -87,7 +87,19 @@ async function takeScreenshot(page, cfg, dir, step, results) {
   const shotPath = path.join(dir, `${step.name}.png`);
   const mask = (cfg.masks || []).map((sel) => page.locator(sel));
   const fullPage = step.fullPage ?? cfg.fullPage ?? false;
-  await page.screenshot({ path: shotPath, mask, fullPage, animations: 'disabled', caret: 'hide' });
+  // Feature-acceptance shots are for human review, not pixel-diffing, so mask
+  // overlays should never obscure the UI. Playwright's default fill is solid
+  // magenta (#FF00FF) — default to transparent so masked (dynamic) regions stay
+  // visible. A scenario can still set `maskColor` if it wants a visible overlay.
+  const maskColor = cfg.maskColor ?? 'rgba(0, 0, 0, 0)';
+  await page.screenshot({
+    path: shotPath,
+    mask,
+    maskColor,
+    fullPage,
+    animations: 'disabled',
+    caret: 'hide',
+  });
   results.push({ name: step.name, caption: step.caption || step.name, file: path.basename(shotPath) });
   ok(`screenshot ${step.name}`);
 }
