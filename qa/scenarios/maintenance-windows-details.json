@@ -1,0 +1,50 @@
+{
+  "$schema": "see qa/recipes/maintenance-windows-details.md for the source of these steps",
+  "name": "maintenance-windows-details",
+  "title": "Synthetics — Maintenance windows shown in monitor details (PR #281853)",
+  "instance": { "label": "feat", "baseUrl": "http://kibana-feat.local:5601" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1200,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 240000,
+  "masks": [],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "syntheticsMonitorList-loaded" }
+    },
+    { "action": "sleep", "ms": 1500 },
+    {
+      "action": "screenshot",
+      "name": "00-management-active-mw-banner",
+      "caption": "Monitor management list — active maintenance windows banner (qa-mwd-window-1/2)"
+    },
+    {
+      "action": "goto",
+      "path": "/app/synthetics",
+      "waitFor": { "testSubj": "syntheticsOverviewSearchInput" }
+    },
+    { "action": "fill", "testSubj": "syntheticsOverviewSearchInput", "value": "qa-mwd-monitor-1" },
+    { "action": "sleep", "ms": 3000 },
+    {
+      "action": "waitFor",
+      "selector": "[data-test-subj=\"syntheticsOverviewGridItem\"]:has-text(\"qa-mwd-monitor-1\")",
+      "timeoutMs": 30000
+    },
+    {
+      "action": "click",
+      "selector": "[data-test-subj=\"syntheticsOverviewGridItem\"]:has-text(\"qa-mwd-monitor-1\")"
+    },
+    { "action": "waitFor", "testSubj": "syntheticsFlyoutTab-details", "timeoutMs": 30000 },
+    { "action": "click", "testSubj": "syntheticsFlyoutTab-details" },
+    { "action": "waitFor", "text": "Maintenance windows", "timeoutMs": 40000 },
+    { "action": "sleep", "ms": 2500 },
+    {
+      "action": "screenshot",
+      "name": "01-flyout-details-mw-row",
+      "caption": "Overview flyout → Details tab (qa-mwd-monitor-1) — Maintenance windows row resolving qa-mwd-window-1/2 titles"
+    }
+  ]
+}
