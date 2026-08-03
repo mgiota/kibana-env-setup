@@ -82,8 +82,46 @@ export async function listMonitors(request, query = '') {
   return data?.monitors ?? [];
 }
 
+// List the seed's monitors, i.e. those named `<namePrefix>-monitor-N`. Filters
+// client-side on the exact structured name: the server `query` param does a
+// broad fuzzy match (returns unrelated monitors), so it can't be trusted for
+// existence checks — using it caused seeds to wrongly report "N already present"
+// and skip creation.
+export async function listSeededMonitors(request, namePrefix) {
+  const monitors = await listMonitors(request);
+  return monitors.filter((m) => (m.name ?? '').startsWith(`${namePrefix}-monitor-`));
+}
+
+// Ensure at least `count` ui-origin HTTP monitors named `<namePrefix>-monitor-N`
+// exist on `location`. Idempotent by exact name prefix. When `maintenanceWindows`
+// (an array of ids) is given, the created monitors have them attached.
+export async function ensureUiMonitors(
+  request,
+  { location, count, namePrefix, maintenanceWindows }
+) {
+  const existing = await listSeededMonitors(request, namePrefix);
+  if (existing.length >= count) {
+    ok(`${existing.length} ${namePrefix} monitors already present`);
+    return existing;
+  }
+  for (let i = existing.length; i < count; i++) {
+    await createUiMonitor(request, {
+      name: `${namePrefix}-monitor-${i + 1}`,
+      url: `https://example.com/${i + 1}`,
+      locationId: location.id,
+      maintenanceWindows,
+    });
+  }
+  return listSeededMonitors(request, namePrefix);
+}
+
 // Create a single ui-origin HTTP monitor on the given private location.
-export async function createUiMonitor(request, { name, url, locationId, enabled = true }) {
+// `maintenanceWindows` (optional) attaches maintenance-window ids at creation
+// time so read views (e.g. the monitor details panel) can surface them.
+export async function createUiMonitor(
+  request,
+  { name, url, locationId, enabled = true, maintenanceWindows }
+) {
   await request('/api/synthetics/monitors', {
     method: 'POST',
     extraHeaders: PUBLIC_API_HEADERS,
@@ -94,9 +132,13 @@ export async function createUiMonitor(request, { name, url, locationId, enabled 
       private_locations: [locationId],
       enabled,
       alert: { status: { enabled: true } },
+      ...(maintenanceWindows?.length ? { maintenance_windows: maintenanceWindows } : {}),
     },
   });
-  ok(`created ui monitor ${name} (enabled=${enabled})`);
+  ok(
+    `created ui monitor ${name} (enabled=${enabled}` +
+      `${maintenanceWindows?.length ? `, mws=${maintenanceWindows.length}` : ''})`
+  );
 }
 
 // Push a set of project monitors. Re-pushing the same journey ids updates them

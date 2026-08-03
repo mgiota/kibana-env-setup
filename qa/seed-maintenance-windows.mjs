@@ -24,13 +24,10 @@ import {
   createApi,
   ensureEnabled,
   ensurePrivateLocation,
-  listMonitors,
-  createUiMonitor,
+  ensureUiMonitors,
 } from './lib/synthetics.mjs';
+import { ensureMaintenanceWindows } from './lib/maintenance_windows.mjs';
 
-// Internal alerting maintenance_window endpoints are versioned and gated on the
-// internal-origin header.
-const MW_HEADERS = { 'elastic-api-version': '2023-10-31', 'x-elastic-internal-origin': 'kibana' };
 const NAME_PREFIX = 'qa-mw';
 
 function parseArgs(argv) {
@@ -61,55 +58,6 @@ function parseArgs(argv) {
   return a;
 }
 
-async function ensureMonitors(request, location, count) {
-  const existing = await listMonitors(request, NAME_PREFIX);
-  if (existing.length >= count) {
-    ok(`${existing.length} qa monitors already present`);
-    return existing;
-  }
-  for (let i = existing.length; i < count; i++) {
-    await createUiMonitor(request, {
-      name: `${NAME_PREFIX}-monitor-${i + 1}`,
-      url: `https://example.com/${i + 1}`,
-      locationId: location.id,
-    });
-  }
-  return listMonitors(request, NAME_PREFIX);
-}
-
-async function listMaintenanceWindows(request) {
-  // internal find endpoint used by the Synthetics flyout's useMaintenanceWindows()
-  const data = await request('/internal/alerting/rules/maintenance_window/_find?per_page=100', {
-    method: 'GET',
-    extraHeaders: MW_HEADERS,
-  }).catch(() => undefined);
-  const items = data?.data ?? data?.maintenance_windows ?? [];
-  return items.filter((w) => (w.title ?? '').startsWith(NAME_PREFIX));
-}
-
-async function ensureMaintenanceWindows(request, count) {
-  const existing = await listMaintenanceWindows(request);
-  if (existing.length >= count) {
-    ok(`${existing.length} qa maintenance windows already present`);
-    return existing;
-  }
-  for (let i = existing.length; i < count; i++) {
-    const title = `${NAME_PREFIX}-window-${i + 1}`;
-    await request('/internal/alerting/rules/maintenance_window', {
-      method: 'POST',
-      extraHeaders: MW_HEADERS,
-      body: {
-        title,
-        duration: 60 * 60 * 1000,
-        r_rule: { dtstart: new Date().toISOString(), tzid: 'UTC', freq: 0, count: 1 },
-        category_ids: ['observability'],
-      },
-    });
-    ok(`created maintenance window ${title}`);
-  }
-  return listMaintenanceWindows(request);
-}
-
 async function main() {
   const args = parseArgs(process.argv);
   const auth = { username: args.user, password: args.pass };
@@ -124,8 +72,15 @@ async function main() {
   }
 
   const location = await ensurePrivateLocation(request, NAME_PREFIX);
-  const monitors = await ensureMonitors(request, location, args.monitors);
-  const windows = await ensureMaintenanceWindows(request, args.windows);
+  const monitors = await ensureUiMonitors(request, {
+    location,
+    count: args.monitors,
+    namePrefix: NAME_PREFIX,
+  });
+  const windows = await ensureMaintenanceWindows(request, {
+    count: args.windows,
+    prefix: NAME_PREFIX,
+  });
 
   ok(`Done. ${monitors.length} monitors, ${windows.length} maintenance windows ready.`);
 }
