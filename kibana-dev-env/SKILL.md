@@ -390,8 +390,22 @@ MAIN_ES_PORT="9201"
 FEAT_KIBANA_PORT="5601"
 FEAT_ES_PORT="9200"
 OBLT_CLUSTER_NAME="my-cluster"   # optional, for renew auto-detect
-KBN_EXTRA_ARGS="--mockIdpPlugin.enabled=false"  # optional, extra flags for yarn start
+KBN_EXTRA_ARGS="--mockIdpPlugin.enabled=false"  # optional, extra flags for yarn start (do NOT add --no-watch here — use restart --no-watch for QA)
 ```
+
+### `--no-watch` (file watcher)
+
+**Do not** persist `--no-watch` in `KBN_EXTRA_ARGS` during active development — it disables the dev file watcher, so server-side edits won't auto-restart Kibana.
+
+Use it **only for a single restart** when needed (e.g. macOS FSEvents limit hit, or a one-off QA boot):
+
+```bash
+~/dev-start.sh restart feat --no-watch
+```
+
+This passes `--no-watch` to `yarn start` for that restart only; the next normal `restart feat` picks up hot-reload again.
+
+**Agent rule:** When running the QA screenshot tools (`qa/run.sh`, `qa-feature.mjs`), do **not** edit `~/.kibana-dev.conf` to add `--no-watch`. If Kibana must be restarted before capture and FSEvents fails, use `restart <session> --no-watch` instead. After QA, restart without the flag if the developer is iterating on code.
 
 ### config/kibana.dev.yml
 

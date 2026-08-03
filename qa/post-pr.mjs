@@ -40,7 +40,7 @@ function parseArgs(argv) {
     kibanaDir: process.env.KIBANA_DIR || process.cwd(),
     checks: null,
     dryRun: false,
-    noBreakages: false,
+    noBreakages: true,
   };
   for (let i = 2; i < argv.length; i++) {
     const t = argv[i];
@@ -52,9 +52,12 @@ function parseArgs(argv) {
     else if (t === '--kibana-dir') a.kibanaDir = argv[++i];
     else if (t === '--checks') a.checks = argv[++i];
     else if (t === '--dry-run') a.dryRun = true;
+    else if (t === '--include-breakages') a.noBreakages = false;
     else if (t === '--no-breakages') a.noBreakages = true;
     else if (t === '--help' || t === '-h') {
-      console.log('post-pr --run DIR [--pr N] [--repo o/r] [--fork-remote origin] [--checks FILE] [--no-breakages] [--dry-run]');
+      console.log(
+        'post-pr --run DIR [--pr N] [--repo o/r] [--fork-remote origin] [--checks FILE] [--include-breakages] [--dry-run]'
+      );
       process.exit(0);
     } else {
       err(`Unknown arg: ${t}`);

@@ -13,7 +13,7 @@
 #      recover                                recreate sessions for orphaned worktrees
 #      prune                                  remove orphaned worktrees (no active session)
 #    Operations:
-#      restart <main|feat|branch>             restart ES + Kibana in a running session
+#      restart <main|feat|branch> [--no-watch]  restart ES + Kibana (--no-watch skips file watcher; use for QA/screenshot restarts when FSEvents fails)
 #      renew [--cluster-name <n>] [--session <t>] [--save]  refresh remote ES credentials
 #      sync [main|feat|branch|all] [--remote|--local]  regenerate kibana.dev.yml from template
 #      clean [main|feat|name|all]             list or delete ES data folders
@@ -482,7 +482,7 @@ print_help() {
   echo "    ${GREEN}prune${NC}                                  Remove orphaned worktrees (no active session)"
   echo ""
   echo "  ${YELLOW}Operations${NC}"
-  echo "    ${GREEN}restart <main|feat|branch>${NC}             Restart ES + Kibana in a running session"
+  echo "    ${GREEN}restart <main|feat|branch> [--no-watch]${NC}  Restart ES + Kibana (--no-watch: one-off, for QA/FSEvents)"
   echo "    ${GREEN}renew [--cluster-name <n>] [--session <t>] [--save]${NC}"
   echo "                                               Refresh remote ES credentials (--session: main|feat|<branch>)"
   echo "    ${GREEN}sync [target] [--remote|--local]${NC}      Regenerate kibana.dev.yml (target: main|feat|branch|all)"
@@ -1482,15 +1482,32 @@ cmd_recover() {
 }
 
 cmd_restart() {
-  local target="${1:-}"
+  local no_watch=false
+  local target=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-watch) no_watch=true; shift ;;
+      *)
+        if [[ -z "$target" ]]; then
+          target="$1"
+        else
+          echo "${RED}Error:${NC} Unexpected argument: $1"
+          return 1
+        fi
+        shift
+        ;;
+    esac
+  done
 
   if [[ -z "$target" ]]; then
     echo "${RED}Error:${NC} Please specify which session to restart."
     echo ""
-    echo "  Usage: ${GREEN}./dev-start.sh restart main|feat|<branch>${NC}"
+    echo "  Usage: ${GREEN}./dev-start.sh restart main|feat|<branch> [--no-watch]${NC}"
     echo ""
     echo "  Examples:"
     echo "    ${GREEN}./dev-start.sh restart feat${NC}"
+    echo "    ${GREEN}./dev-start.sh restart feat --no-watch${NC}   # skip file watcher (QA / FSEvents workaround)"
     echo "    ${GREEN}./dev-start.sh restart main${NC}"
     echo "    ${GREEN}./dev-start.sh restart slo-crash${NC}"
     return 1
@@ -1631,8 +1648,13 @@ cmd_restart() {
 
   # Re-launch kbn-start in the left pane
   echo "${BLUE}→${NC} Re-launching kbn-start..."
+  local kbn_start_cmd="$KBN_START $data_folder --kibana-port $kibana_port --es-port ${es_port} --host $host"
+  if [[ "$no_watch" == true ]]; then
+    kbn_start_cmd="KBN_EXTRA_ARGS=\"${KBN_EXTRA_ARGS} --no-watch\" $kbn_start_cmd"
+    echo "${YELLOW}ℹ${NC}  Using --no-watch for this restart only (file watcher disabled)"
+  fi
   tmux send-keys -t "${session}:servers.0" \
-    "$KBN_START $data_folder --kibana-port $kibana_port --es-port ${es_port} --host $host" \
+    "$kbn_start_cmd" \
     Enter
 
   echo ""
@@ -2424,7 +2446,7 @@ fi
 case "${1:-main}" in
   main)        cmd_main ;;
   setup)       cmd_setup ;;
-  restart)     cmd_restart "$2" ;;
+  restart)     shift; cmd_restart "$@" ;;
   renew)       shift; cmd_renew "$@" ;;
   switch)      shift; cmd_switch "$@" ;;
   new)         shift; cmd_new "$@" ;;

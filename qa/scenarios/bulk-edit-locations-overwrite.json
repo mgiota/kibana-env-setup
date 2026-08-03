@@ -1,0 +1,76 @@
+{
+  "$schema": "feature-acceptance scenario — see README.md",
+  "name": "bulk-edit-locations-overwrite",
+  "title": "Synthetics — Bulk edit locations (Overwrite: private → public)",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5608" },
+  "auth": { "username": "elastic", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [],
+  "setup": [
+    {
+      "cmd": "node seed-local-monitors.mjs --space default --count 2",
+      "optional": true
+    }
+  ],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "syntheticsMonitorList-loaded" }
+    },
+    {
+      "action": "click",
+      "selector": "tr:has-text(\"qa-local-1\") input[type=\"checkbox\"]"
+    },
+    {
+      "action": "click",
+      "selector": "tr:has-text(\"qa-local-2\") input[type=\"checkbox\"]"
+    },
+    {
+      "action": "screenshot",
+      "name": "01-private-monitors-selected",
+      "caption": "Two ui-origin monitors on a private location selected (qa-local-1, qa-local-2)"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    { "action": "click", "testSubj": "syntheticsBulkEditLocationsItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkLocationsFlyout" },
+    {
+      "action": "buttonGroupSelect",
+      "within": "syntheticsBulkLocationsModeGroup",
+      "label": "Overwrite"
+    },
+    {
+      "action": "screenshot",
+      "name": "02-overwrite-mode",
+      "caption": "Edit locations flyout — Overwrite mode selected"
+    },
+    {
+      "action": "comboBoxSelect",
+      "within": "syntheticsBulkLocationsComboBox",
+      "optionText": "US Central"
+    },
+    {
+      "action": "screenshot",
+      "name": "03-public-location-chosen",
+      "caption": "Public Elastic-managed location chosen — effect summary shows monitors that will change"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkLocationsSave" },
+    { "action": "waitFor", "testSubj": "euiToastHeader__title", "timeoutMs": 90000 },
+    {
+      "action": "screenshot",
+      "name": "04-success-toast",
+      "caption": "Success toast after bulk overwrite save"
+    },
+    { "action": "click", "testSubj": "toastCloseButton", "optional": true },
+    { "action": "sleep", "ms": 2000 },
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    {
+      "action": "screenshot",
+      "name": "05-locations-after-overwrite",
+      "caption": "Monitor list after save — locations column should show only the chosen public location (private location must be gone). Bug #282411 left both."
+    }
+  ]
+}

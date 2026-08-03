@@ -185,6 +185,28 @@ touched), pushes it, and embeds `raw.githubusercontent.com` URLs. The comment is
 tagged with a hidden marker (`<!-- qa-feature-report:<scenario> -->`) so re-runs
 **update** the same comment instead of stacking new ones.
 
+Posted comments include **Result** + **Screenshots** only — console/network
+breakages stay in local `report.html` (use `--include-breakages` on `post-pr.mjs`
+if you want them in the GitHub comment too).
+
+## Kibana restarts before capture
+
+The screenshot tools connect to **already-running** Kibana instances — they do not
+start the server. For active development, keep `KBN_EXTRA_ARGS` in
+`~/.kibana-dev.conf` **without** `--no-watch` so the dev file watcher stays on.
+
+If you must restart Kibana before a capture and hit the macOS FSEvents limit
+(`[watcher] fatal error`), use a **one-off** restart flag instead of editing the
+config:
+
+```bash
+~/dev-start.sh restart feat --no-watch
+```
+
+The next normal `~/dev-start.sh restart feat` restores hot-reload. Agents running
+QA should use this flag when needed; they should not persist `--no-watch` in
+`~/.kibana-dev.conf`.
+
 ## Piloting a feature (e.g. maintenance windows)
 
 1. Point the `feat` instance at the feature branch and start it
