@@ -115,6 +115,30 @@ export async function ensureUiMonitors(
   return listSeededMonitors(request, namePrefix);
 }
 
+// Clear maintenance windows from the seed's monitors (named `<namePrefix>-monitor-N`).
+// The edit route merges the request body over the stored monitor and *replaces*
+// (not deep-merges) non-metadata keys, so PUT-ing `[]` removes all attached windows.
+// Idempotent: monitors already window-free are skipped to avoid needless Fleet
+// re-syncs (each edit bumps the revision and pushes to the service). Returns the
+// number actually cleared.
+export async function clearMonitorMaintenanceWindows(request, namePrefix) {
+  const monitors = await listSeededMonitors(request, namePrefix);
+  let cleared = 0;
+  for (const m of monitors) {
+    const id = m.config_id ?? m.id;
+    const current = m.maintenance_windows;
+    if (Array.isArray(current) && current.length === 0) continue;
+    await request(`/api/synthetics/monitors/${id}`, {
+      method: 'PUT',
+      extraHeaders: PUBLIC_API_HEADERS,
+      body: { maintenance_windows: [] },
+    });
+    cleared++;
+  }
+  ok(`cleared maintenance windows on ${cleared}/${monitors.length} ${namePrefix} monitor(s)`);
+  return cleared;
+}
+
 // Create a single ui-origin HTTP monitor on the given private location.
 // `maintenanceWindows` (optional) attaches maintenance-window ids at creation
 // time so read views (e.g. the monitor details panel) can surface them.

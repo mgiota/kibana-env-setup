@@ -8,6 +8,9 @@
   "settleMs": 1200,
   "navTimeoutMs": 90000,
   "readinessTimeoutMs": 180000,
+  "setup": [
+    { "cmd": "node seed-maintenance-windows.mjs --reset-windows", "optional": true }
+  ],
   "masks": [
     ".echChart",
     "[data-test-subj=\"last-run-time\"]",
@@ -45,18 +48,20 @@
       "name": "04-flyout-filled",
       "caption": "Flyout with a maintenance window selected"
     },
-    { "action": "click", "testSubj": "syntheticsBulkMaintenanceWindowsSave", "optional": true },
-    { "action": "waitFor", "selector": ".euiToast", "optional": true, "timeoutMs": 15000 },
+    { "action": "click", "testSubj": "syntheticsBulkMaintenanceWindowsSave" },
+    { "action": "waitFor", "testSubj": "euiToastHeader__title", "timeoutMs": 90000 },
     {
       "action": "screenshot",
       "name": "05-success-toast",
-      "caption": "Success confirmation"
+      "caption": "Success toast — maintenance window applied, flyout closed"
     },
-    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded", "optional": true },
+    { "action": "click", "testSubj": "toastCloseButton" },
+    { "action": "sleep", "ms": 1500 },
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
     {
       "action": "screenshot",
       "name": "06-result-table",
-      "caption": "Monitor table after update"
+      "caption": "Settled monitor list (toast dismissed); maintenance windows active"
     }
   ]
 }
