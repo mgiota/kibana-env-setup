@@ -1,0 +1,74 @@
+{
+  "$schema": "feature-acceptance scenario — see README.md",
+  "name": "bulk-edit-tags-service-labels",
+  "title": "Synthetics — Bulk edit tags, service name & labels",
+  "instance": { "label": "main", "baseUrl": "http://localhost:5602" },
+  "auth": { "username": "admin", "password": "changeme" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 180000,
+  "masks": [],
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/app/synthetics/monitors",
+      "waitFor": { "testSubj": "syntheticsMonitorList-loaded" }
+    },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    {
+      "action": "screenshot",
+      "name": "01-monitors-selected",
+      "caption": "Monitors selected on the management list"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    {
+      "action": "screenshot",
+      "name": "02-bulk-menu-open",
+      "caption": "Bulk actions menu — Edit tags / service name / labels visible alongside other actions"
+    },
+
+    { "action": "click", "testSubj": "syntheticsBulkEditTagsItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkTagsFlyout" },
+    {
+      "action": "screenshot",
+      "name": "03-tags-flyout",
+      "caption": "Edit tags flyout — Add/Remove/Overwrite modes with tag combobox"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkEditFlyoutCancel" },
+    { "action": "sleep", "ms": 800 },
+
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    { "action": "click", "testSubj": "syntheticsBulkEditServiceNameItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkServiceNameFlyout" },
+    {
+      "action": "screenshot",
+      "name": "04-service-name-flyout",
+      "caption": "Edit service name flyout — overwrite/clear with type-ahead suggestions"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkEditFlyoutCancel" },
+    { "action": "sleep", "ms": 800 },
+
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    { "action": "click", "testSubj": "checkboxSelectAll" },
+    { "action": "click", "testSubj": "syntheticsBulkActionsButton" },
+    { "action": "click", "testSubj": "syntheticsBulkEditLabelsItem" },
+    { "action": "waitFor", "testSubj": "syntheticsBulkLabelsFlyout" },
+    {
+      "action": "screenshot",
+      "name": "05-labels-flyout",
+      "caption": "Edit labels flyout — Add/Remove/Overwrite with key/value rows"
+    },
+    { "action": "click", "testSubj": "syntheticsBulkEditFlyoutCancel" },
+    { "action": "sleep", "ms": 800 },
+
+    { "action": "waitFor", "testSubj": "syntheticsMonitorList-loaded" },
+    {
+      "action": "screenshot",
+      "name": "06-final",
+      "caption": "Back to the settled monitor list after exercising all three flyouts"
+    }
+  ]
+}
