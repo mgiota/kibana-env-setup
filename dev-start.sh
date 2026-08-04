@@ -1098,7 +1098,7 @@ cmd_switch() {
   echo "   Cursor  → KIBANA_URL=http://${FEAT_HOST}:${FEAT_KIBANA_PORT}"
   echo ""
 
-  tmux attach-session -t "kibana-feat"
+  tmux_attach "kibana-feat"
 }
 
 cmd_new() {
@@ -1126,7 +1126,7 @@ cmd_new() {
 
   if tmux has-session -t "$session" 2>/dev/null; then
     echo "${YELLOW}Session '$session' already exists. Attaching...${NC}"
-    tmux attach-session -t "$session"
+    tmux_attach "$session"
     exit 0
   fi
 
@@ -1209,7 +1209,17 @@ cmd_new() {
   echo "  Switch sessions:  Ctrl-a s"
   echo ""
 
-  tmux attach-session -t "$session"
+  tmux_attach "$session"
+}
+
+tmux_attach() {
+  # Use switch-client when already inside tmux, attach-session otherwise.
+  local session="$1"
+  if [[ -n "$TMUX" ]]; then
+    tmux switch-client -t "$session"
+  else
+    tmux attach-session -t "$session"
+  fi
 }
 
 cmd_attach() {
@@ -1229,7 +1239,7 @@ cmd_attach() {
     exit 1
   fi
 
-  tmux attach-session -t "$session"
+  tmux_attach "$session"
 }
 
 cmd_kill() {
@@ -2426,7 +2436,7 @@ cmd_main() {
   echo "  ${BOLD}Ctrl-a w${NC}  → window overview"
   echo ""
 
-  tmux attach-session -t "kibana-feat"
+  tmux_attach "kibana-feat"
 }
 # ── END COMMANDS ──────────────────────────────────────────
 
