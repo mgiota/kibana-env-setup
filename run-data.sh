@@ -9,6 +9,7 @@
 #    run-data synthetics monitors --minimal → create 4 monitors (1 per type) + mock data
 #    run-data synthetics break <scenario>    → trigger a Synthetics failure scenario
 #    run-data synthetics fix <scenario>      → restore from a failure scenario
+#    run-data synthetics fix public-locations → migrate monitors off broken public locations
 #    run-data synthetics reset               → wipe all Fleet + Synthetics state
 #
 #  Reads Kibana port and ES host from config/kibana.dev.yml automatically.
@@ -481,7 +482,17 @@ json.dump(item, sys.stdout)
     # ============================================================
     _synth_fix() {
       local scenario="$1"
+      shift
       case "$scenario" in
+
+        public-locations)
+          echo "🔧  Fix: Broken public Synthetics locations (expired TLS / sync 401)"
+          local setup_dir="${0:A:h}"
+          QA_BASE_URL="$KIBANA_URL" \
+          QA_ADMIN_USERNAME="$DATA_USERNAME" \
+          QA_ADMIN_PASSWORD="$DATA_PASSWORD" \
+          node "$setup_dir/qa/fix-broken-public-locations.mjs" --reset "$@"
+          ;;
 
         agent-offline)
           echo "🔧  Fix: Agent Offline"
@@ -692,6 +703,7 @@ for item in data.get('items', []):
           echo "  orphaned-policy    Delete package policies with no monitor"
           echo "  agent-unenrolled   Re-enroll agent (full synthetics setup)"
           echo "  service-disabled   Re-enable Synthetics service"
+          echo "  public-locations   Migrate monitors off broken public locations (TLS/auth sync errors)"
           echo "  all                Fix everything"
           [[ "$scenario" != "help" ]] && return 1
           ;;
@@ -714,7 +726,7 @@ for item in data.get('items', []):
           _synth_fix help
           exit 1
         fi
-        _synth_fix "$3"
+        _synth_fix "$3" "${@:4}"
         ;;
       reset)
         echo "🧹  Reset — clearing all Fleet + Synthetics state"

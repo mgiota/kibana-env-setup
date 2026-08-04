@@ -124,8 +124,10 @@ publishes the result to the PR.
 | `scenarios/*.json` | Declarative scenarios (the codified "recipe"). |
 | `recipes/*.md` | Human-readable recipe: confirmed selectors + step order + screenshot points. |
 | `seed-*.mjs` | Deterministic data seeding for a scenario. |
+| `fix-broken-public-locations.mjs` | Library/CLI for `run-data synthetics fix public-locations` (broken public location sync errors). |
 | `post-pr.mjs` | Hosts screenshots on a fork branch and posts/updates a PR comment. |
 | `lib/kibana.mjs` | Shared login / readiness / logger helpers (also used by `qa-shots.mjs`). |
+| `lib/public_locations.mjs` | Probe manifest public locations (TLS + service auth) for the fix script. |
 
 ## Run
 
@@ -218,3 +220,20 @@ QA should use this flag when needed; they should not persist `--no-watch` in
 The same feature is also covered by an in-repo Scout UI test
 (`test/scout/ui/tests/bulk_edit_maintenance_windows.spec.ts`) which is the durable,
 CI-gated version of the same recipe.
+
+---
+
+# Synthetics sync errors — `run-data synthetics fix public-locations`
+
+If Kibana logs `certificate has expired` or `401` from `plugins.synthetics`, the
+background public-location sync is hitting a broken Elastic-managed endpoint — not
+your Kibana code or PR. See `recipes/fix-broken-public-locations.md`.
+
+```bash
+# From a Kibana worktree (reads port/creds from config/kibana.dev.yml)
+DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics fix public-locations --dry-run
+DATA_USERNAME=admin DATA_PASSWORD='<admin-pw>' run-data synthetics fix public-locations
+```
+
+Implementation: `qa/fix-broken-public-locations.mjs` (also callable directly).
+Service credentials for probing are read from `~/.kibana-remote-es.yml` by default.

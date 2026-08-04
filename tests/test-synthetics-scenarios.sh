@@ -141,6 +141,9 @@ it "lists agent-unenrolled fix"
 it "lists service-disabled fix"
   assert_contains "$FIX_HELP" "service-disabled"
 
+it "lists public-locations fix"
+  assert_contains "$FIX_HELP" "public-locations"
+
 it "lists all (full restore) option"
   assert_contains "$FIX_HELP" "all"
 
