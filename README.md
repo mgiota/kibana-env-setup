@@ -134,6 +134,7 @@ That's it for your morning start. It creates any missing sessions and attaches t
 ~/dev-start.sh restart main               # restart ES + Kibana in kibana-main
 ~/dev-start.sh restart feat               # restart ES + Kibana in kibana-feat
 ~/dev-start.sh restart slo-crash          # restart a hotfix session
+~/dev-start.sh restart feat --no-watch    # one-off restart without file watcher (QA / FSEvents workaround)
 ~/dev-start.sh clean                      # list ES data folders + sizes
 ~/dev-start.sh clean main                 # delete ES data for kibana-main
 ~/dev-start.sh clean feat                 # delete ES data for current feat branch
