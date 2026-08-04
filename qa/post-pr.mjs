@@ -171,6 +171,11 @@ function buildMarkdown({ summary, marker, checksMd, imageBaseUrl, noBreakages })
   );
   lines.push('');
 
+  if (summary.intro) {
+    lines.push(summary.intro.trim());
+    lines.push('');
+  }
+
   if (checksMd) {
     lines.push('### Baseline checks');
     lines.push('');

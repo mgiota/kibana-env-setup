@@ -1,0 +1,52 @@
+{
+  "$schema": "see qa/recipes/maintenance-windows-readonly.md",
+  "name": "maintenance-windows-readonly-minimal",
+  "title": "Synthetics — MW toast regression (minimal read role, PR #281894)",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5601" },
+  "auth": { "username": "qa-synthetics-readonly", "password": "qa-readonly-password" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 120000,
+  "setup": [
+    {
+      "cmd": "node seed-readonly-user.mjs --profile minimal --base-url \"$QA_BASE_URL\" --user \"$QA_ADMIN_USERNAME\" --pass \"$QA_ADMIN_PASSWORD\""
+    },
+    {
+      "cmd": "node seed-mw-details.mjs --base-url \"$QA_BASE_URL\" --user \"$QA_ADMIN_USERNAME\" --pass \"$QA_ADMIN_PASSWORD\""
+    }
+  ],
+  "masks": [],
+  "steps": [
+    { "action": "goto", "path": "/app/synthetics/monitors" },
+    {
+      "action": "waitFor",
+      "testSubj": "syntheticsMonitorList-loaded",
+      "timeoutMs": 60000,
+      "optional": true
+    },
+    { "action": "sleep", "ms": 5000 },
+    {
+      "action": "screenshot",
+      "name": "01-management-minimal",
+      "caption": "Monitors management — minimal uptime:read role (may include unrelated field_caps toast)"
+    },
+    {
+      "action": "waitFor",
+      "text": "Failed to fetch maintenance windows",
+      "timeoutMs": 8000,
+      "optional": true
+    },
+    {
+      "action": "waitFor",
+      "text": "Failed to check if maintenance windows are active",
+      "timeoutMs": 3000,
+      "optional": true
+    },
+    {
+      "action": "screenshot",
+      "name": "02-mw-error-toasts",
+      "caption": "MW error toasts — present on baseline (no fix), absent on PR branch"
+    }
+  ]
+}

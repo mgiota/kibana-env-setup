@@ -1,0 +1,63 @@
+{
+  "$schema": "see qa/recipes/maintenance-windows-readonly.md",
+  "name": "maintenance-windows-readonly-realistic",
+  "title": "Synthetics — MW UI for realistic read-only user (PR #281894)",
+  "instance": { "label": "feat", "baseUrl": "http://localhost:5601" },
+  "auth": { "username": "qa-synthetics-readonly-realistic", "password": "qa-readonly-password" },
+  "viewport": { "width": 1440, "height": 900 },
+  "settleMs": 1500,
+  "navTimeoutMs": 90000,
+  "readinessTimeoutMs": 120000,
+  "setup": [
+    {
+      "cmd": "node seed-readonly-user.mjs --profile realistic --base-url \"$QA_BASE_URL\" --user \"$QA_ADMIN_USERNAME\" --pass \"$QA_ADMIN_PASSWORD\""
+    },
+    {
+      "cmd": "node seed-mw-details.mjs --base-url \"$QA_BASE_URL\" --user \"$QA_ADMIN_USERNAME\" --pass \"$QA_ADMIN_PASSWORD\""
+    }
+  ],
+  "masks": [
+    ".echChart",
+    "[data-test-subj=\"last-run-time\"]",
+    "[data-test-subj=\"monitorLastRunTime\"]"
+  ],
+  "steps": [
+    { "action": "goto", "path": "/app/synthetics/monitors" },
+    {
+      "action": "waitFor",
+      "testSubj": "syntheticsMonitorList-loaded",
+      "timeoutMs": 90000
+    },
+    { "action": "sleep", "ms": 3000 },
+    {
+      "action": "screenshot",
+      "name": "01-management-realistic",
+      "caption": "Monitors management — realistic read role (no MW error toasts on PR branch)"
+    },
+    {
+      "action": "goto",
+      "path": "/app/synthetics",
+      "waitFor": { "testSubj": "syntheticsOverviewSearchInput" }
+    },
+    { "action": "fill", "testSubj": "syntheticsOverviewSearchInput", "value": "qa-mwd-monitor-1" },
+    { "action": "sleep", "ms": 3000 },
+    {
+      "action": "waitFor",
+      "selector": "[data-test-subj=\"syntheticsOverviewGridItem\"]:has-text(\"qa-mwd-monitor-1\")",
+      "timeoutMs": 30000
+    },
+    {
+      "action": "click",
+      "selector": "[data-test-subj=\"syntheticsOverviewGridItem\"]:has-text(\"qa-mwd-monitor-1\")"
+    },
+    { "action": "waitFor", "testSubj": "syntheticsFlyoutTab-details", "timeoutMs": 30000 },
+    { "action": "click", "testSubj": "syntheticsFlyoutTab-details" },
+    { "action": "waitFor", "text": "Maintenance windows", "timeoutMs": 40000 },
+    { "action": "sleep", "ms": 2500 },
+    {
+      "action": "screenshot",
+      "name": "02-flyout-details-mw-row",
+      "caption": "Overview flyout → Details tab — Maintenance windows row resolves qa-mwd-window titles for realistic read-only user"
+    }
+  ]
+}
